@@ -1,0 +1,25 @@
+menuconfig HL_DRIVERS
+	boolean "HACH SeaCloud drivers support"
+	---help---
+	Hach specific linux drivers are supported here.
+
+if HL_DRIVERS
+#
+# RL78 driver configuration subsystem configuration
+#
+
+config RL78_VF50_SUPPORT
+	tristate "VF50 RL78 support setup"
+	default m
+	help
+      This control enables/disables the request handler for the
+      connected RL78 sub processors.
+      Each RL78 handles up to 3 probes which are connected with the
+      sub processor via Modbus. Each RL78 uses a seperate request line
+      and a common interrupt (IRQ) to notify the VF50 master of events.
+
+      If you want RL78 support, you should say Y here.
+
+      This RL78 support can also be built as a module.
+
+endif

@@ -31,7 +31,6 @@ struct lcdif_crtc {
 	struct device *dev;
 
 	struct drm_crtc base;
-	struct imx_drm_crtc *imx_crtc;
 	struct lcdif_plane *plane[2];
 
 	int vbl_irq;
@@ -39,14 +38,6 @@ struct lcdif_crtc {
 };
 
 #define to_lcdif_crtc(crtc) container_of(crtc, struct lcdif_crtc, base)
-
-static void lcdif_crtc_destroy(struct drm_crtc *crtc)
-{
-	struct lcdif_crtc *lcdif_crtc = to_lcdif_crtc(crtc);
-
-	imx_drm_remove_crtc(lcdif_crtc->imx_crtc);
-	lcdif_crtc->imx_crtc = NULL;
-}
 
 static void lcdif_crtc_reset(struct drm_crtc *crtc)
 {
@@ -97,26 +88,23 @@ static void lcdif_crtc_destroy_state(struct drm_crtc *crtc,
 	kfree(to_imx_crtc_state(state));
 }
 
-static const struct drm_crtc_funcs lcdif_crtc_funcs = {
-	.set_config = drm_atomic_helper_set_config,
-	.destroy    = lcdif_crtc_destroy,
-	.page_flip  = drm_atomic_helper_page_flip,
-	.reset      = lcdif_crtc_reset,
-	.atomic_duplicate_state = lcdif_crtc_duplicate_state,
-	.atomic_destroy_state	= lcdif_crtc_destroy_state,
-};
-
 static int lcdif_crtc_atomic_check(struct drm_crtc *crtc,
 				   struct drm_crtc_state *state)
 {
 	struct lcdif_crtc *lcdif_crtc = to_lcdif_crtc(crtc);
 	struct imx_crtc_state *imx_crtc_state = to_imx_crtc_state(state);
 
-	/* return directly when no devices attached
-	 * to LCDIF to avoid below error messsage to
-	 * make noises in this case.
+	/* Don't check 'bus_format' when CRTC is
+	 * going to be disabled.
 	 */
-	if (!imx_crtc_state->bus_format)
+	if (!state->enable)
+		return 0;
+
+	/* For the commit that the CRTC is active
+	 * without planes attached to it should be
+	 * invalid.
+	 */
+	if (state->active && !state->plane_mask)
 		return -EINVAL;
 
 	/* check the requested bus format can be
@@ -158,7 +146,8 @@ static void lcdif_crtc_atomic_flush(struct drm_crtc *crtc,
 	return;
 }
 
-static void lcdif_crtc_enable(struct drm_crtc *crtc)
+static void lcdif_crtc_atomic_enable(struct drm_crtc *crtc,
+				     struct drm_crtc_state *old_crtc_state)
 {
 	struct lcdif_crtc *lcdif_crtc = to_lcdif_crtc(crtc);
 	struct lcdif_soc *lcdif = dev_get_drvdata(lcdif_crtc->dev->parent);
@@ -215,7 +204,7 @@ static const struct drm_crtc_helper_funcs lcdif_helper_funcs = {
 	.atomic_check	= lcdif_crtc_atomic_check,
 	.atomic_begin	= lcdif_crtc_atomic_begin,
 	.atomic_flush	= lcdif_crtc_atomic_flush,
-	.enable		= lcdif_crtc_enable,
+	.atomic_enable	= lcdif_crtc_atomic_enable,
 	.atomic_disable	= lcdif_crtc_atomic_disable,
 };
 
@@ -239,11 +228,15 @@ static void lcdif_disable_vblank(struct drm_crtc *crtc)
 	lcdif_vblank_irq_disable(lcdif);
 }
 
-static const struct imx_drm_crtc_helper_funcs lcdif_crtc_helper_funcs = {
-	.enable_vblank     = lcdif_enable_vblank,
-	.disable_vblank    = lcdif_disable_vblank,
-	.crtc_funcs        = &lcdif_crtc_funcs,
-	.crtc_helper_funcs = &lcdif_helper_funcs,
+static const struct drm_crtc_funcs lcdif_crtc_funcs = {
+	.set_config = drm_atomic_helper_set_config,
+	.destroy    = drm_crtc_cleanup,
+	.page_flip  = drm_atomic_helper_page_flip,
+	.reset      = lcdif_crtc_reset,
+	.atomic_duplicate_state = lcdif_crtc_duplicate_state,
+	.atomic_destroy_state	= lcdif_crtc_destroy_state,
+	.enable_vblank	= lcdif_enable_vblank,
+	.disable_vblank = lcdif_disable_vblank,
 };
 
 static irqreturn_t lcdif_crtc_vblank_irq_handler(int irq, void *dev_id)
@@ -278,9 +271,11 @@ static int lcdif_crtc_init(struct lcdif_crtc *lcdif_crtc,
 
 	/* TODO: Overlay plane */
 
-	ret = imx_drm_add_crtc(drm, &lcdif_crtc->base,
-			       &lcdif_crtc->imx_crtc, &primary->base,
-			       &lcdif_crtc_helper_funcs, pdata->of_node);
+	lcdif_crtc->base.port = pdata->of_node;
+	drm_crtc_helper_add(&lcdif_crtc->base, &lcdif_helper_funcs);
+	ret = drm_crtc_init_with_planes(drm, &lcdif_crtc->base,
+			&lcdif_crtc->plane[0]->base, NULL,
+			&lcdif_crtc_funcs, NULL);
 	if (ret) {
 		dev_err(lcdif_crtc->dev, "failed to init crtc\n");
 		goto primary_plane_deinit;
@@ -350,11 +345,6 @@ static void lcdif_crtc_unbind(struct device *dev, struct device *master,
 {
 	struct drm_device *drm = data;
 	struct lcdif_crtc *lcdif_crtc = dev_get_drvdata(dev);
-
-	if (lcdif_crtc->imx_crtc) {
-		imx_drm_remove_crtc(lcdif_crtc->imx_crtc);
-		lcdif_crtc->imx_crtc = NULL;
-	}
 
 	lcdif_plane_deinit(drm, lcdif_crtc->plane[0]);
 }

@@ -1,3 +1,17 @@
+/*
+ * Copyright (C) 2017-2018 NXP
+ *
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2 of the License, or (at your
+ * option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY
+ * or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License
+ * for more details.
+ */
+
 #ifndef __DCSS_PRV_H__
 #define __DCSS_PRV_H__
 
@@ -6,6 +20,8 @@
 #define SET 0x04
 #define CLR 0x08
 #define TGL 0x0C
+
+#define MAX_CLK_SRC 3
 
 #define dcss_writel(v, c)   writel((v), (c))
 #define dcss_readl(c)	    readl(c)
@@ -47,13 +63,16 @@ struct dcss_soc {
 	struct dcss_dec400d_priv *dec400d_priv;
 	struct dcss_wrscl_priv *wrscl_priv;
 	struct dcss_rdsrc_priv *rdsrc_priv;
+	struct dcss_pll_priv *pll_priv;
 
 	struct clk *apb_clk;
 	struct clk *axi_clk;
-	struct clk *pdiv_clk;
-	struct clk *pout_clk;
+	struct clk *pix_clk;
 	struct clk *rtrm_clk;
 	struct clk *dtrc_clk;
+	struct clk *sel_clk;
+	struct clk *pll_clk;
+	struct clk *src_clk[MAX_CLK_SRC];
 
 	void (*dcss_disable_callback)(void *data);
 
@@ -61,7 +80,6 @@ struct dcss_soc {
 	bool clks_on;
 
 	struct pm_qos_request pm_qos_req;
-	bool pm_req_active;
 };
 
 /* BLKCTL */

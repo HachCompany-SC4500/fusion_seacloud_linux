@@ -16,7 +16,6 @@
 /dts-v1/;
 
 #include "fsl-imx8qxp.dtsi"
-
 #include "fsl-imx8x-arm2.dtsi"
 
 / {
@@ -31,5 +30,6 @@
 };
 
 &vpu_decoder {
+    core_type = <1>;
     status = "okay";
 };

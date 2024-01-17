@@ -9,6 +9,7 @@
  */
 #include <linux/busfreq-imx.h>
 #include <linux/clk.h>
+#include <linux/cpufreq.h>
 #include <linux/cpu_cooling.h>
 #include <linux/delay.h>
 #include <linux/device.h>
@@ -218,6 +219,7 @@ static struct thermal_soc_data thermal_imx7d_data = {
 };
 
 struct imx_thermal_data {
+	struct cpufreq_policy *policy;
 	struct thermal_zone_device *tz;
 	struct thermal_cooling_device *cdev[2];
 	enum thermal_device_mode mode;
@@ -656,10 +658,10 @@ static int imx_get_sensor_data(struct platform_device *pdev)
 	}
 
 	/*
-	 * Set the critical trip point at 5C under max
+	 * Set the critical trip point at max
 	 * Set the passive trip point at 10C under max (can change via sysfs)
 	 */
-	data->temp_critical = data->temp_max + (1000 * 10);
+	data->temp_critical = data->temp_max;
 	data->temp_passive = data->temp_max - (1000 * 10);
 
 	return 0;
@@ -762,6 +764,10 @@ static int imx_thermal_probe(struct platform_device *pdev)
 	data->tempmon = map;
 
 	data->socdata = of_device_get_match_data(&pdev->dev);
+	if (!data->socdata) {
+		dev_err(&pdev->dev, "no device match found\n");
+		return -ENODEV;
+	}
 
 	/* make sure the IRQ flag is clear before enabling irq on i.MX6SX */
 	if (data->socdata->version == TEMPMON_IMX6SX) {
@@ -807,7 +813,13 @@ static int imx_thermal_probe(struct platform_device *pdev)
 	regmap_write(map, data->socdata->sensor_ctrl + REG_SET,
 		     data->socdata->power_down_mask);
 
-	data->cdev[0] = cpufreq_cooling_register(cpu_present_mask);
+	data->policy = cpufreq_cpu_get(0);
+	if (!data->policy) {
+		pr_debug("%s: CPUFreq policy not found\n", __func__);
+		return -EPROBE_DEFER;
+	}
+
+	data->cdev[0] = cpufreq_cooling_register(data->policy);
 	if (IS_ERR(data->cdev[0])) {
 		ret = PTR_ERR(data->cdev[0]);
 		if (ret != -EPROBE_DEFER)
@@ -837,6 +849,7 @@ static int imx_thermal_probe(struct platform_device *pdev)
 				"failed to get thermal clk: %d\n", ret);
 		cpufreq_cooling_unregister(data->cdev[0]);
 		devfreq_cooling_unregister(data->cdev[1]);
+		cpufreq_cpu_put(data->policy);
 		return ret;
 	}
 
@@ -852,6 +865,7 @@ static int imx_thermal_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "failed to enable thermal clk: %d\n", ret);
 		cpufreq_cooling_unregister(data->cdev[0]);
 		devfreq_cooling_unregister(data->cdev[1]);
+		cpufreq_cpu_put(data->policy);
 		return ret;
 	}
 
@@ -869,6 +883,7 @@ static int imx_thermal_probe(struct platform_device *pdev)
 		clk_disable_unprepare(data->thermal_clk);
 		cpufreq_cooling_unregister(data->cdev[0]);
 		devfreq_cooling_unregister(data->cdev[1]);
+		cpufreq_cpu_put(data->policy);
 		return ret;
 	}
 
@@ -905,6 +920,7 @@ static int imx_thermal_probe(struct platform_device *pdev)
 		thermal_zone_device_unregister(data->tz);
 		cpufreq_cooling_unregister(data->cdev[0]);
 		devfreq_cooling_unregister(data->cdev[1]);
+		cpufreq_cpu_put(data->policy);
 		return ret;
 	}
 
@@ -933,6 +949,7 @@ static int imx_thermal_remove(struct platform_device *pdev)
 	thermal_zone_device_unregister(data->tz);
 	cpufreq_cooling_unregister(data->cdev[0]);
 	devfreq_cooling_unregister(data->cdev[1]);
+	cpufreq_cpu_put(data->policy);
 
 	return 0;
 }
@@ -973,8 +990,11 @@ static int imx_thermal_resume(struct device *dev)
 {
 	struct imx_thermal_data *data = dev_get_drvdata(dev);
 	struct regmap *map = data->tempmon;
+	int ret;
 
-	clk_prepare_enable(data->thermal_clk);
+	ret = clk_prepare_enable(data->thermal_clk);
+	if (ret)
+		return ret;
 
 	/*
 	 * restore the temp sensor registers of i.MX7D as the tempmon

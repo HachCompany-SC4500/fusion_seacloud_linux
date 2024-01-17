@@ -72,6 +72,13 @@ static void imx_hdmi_audio_avi_set(state_struct *state,
 	frame.channels = channels;
 	frame.coding_type = HDMI_AUDIO_CODING_TYPE_STREAM;
 
+	if (channels == 2)
+		frame.channel_allocation = 0;
+	else if (channels == 4)
+		frame.channel_allocation = 0x3;
+	else if (channels == 8)
+		frame.channel_allocation = 0x13;
+
 	ret = hdmi_audio_infoframe_pack(&frame, buf + 1, sizeof(buf) - 1);
 	if (ret < 0) {
 		DRM_ERROR("failed to pack audio infoframe: %d\n", ret);
@@ -80,8 +87,7 @@ static void imx_hdmi_audio_avi_set(state_struct *state,
 
 	buf[0] = 0;
 
-	CDN_API_InfoframeSet(state, 1, sizeof(buf),
-				    (u32 *)buf, HDMI_INFOFRAME_TYPE_AUDIO);
+	CDN_API_InfoframeSet(state, 1, sizeof(buf), buf, HDMI_INFOFRAME_TYPE_AUDIO);
 }
 
 static u32 imx_hdp_audio(struct imx_hdp *hdmi, AUDIO_TYPE type, u32 sample_rate, u32 channels, u32 width)

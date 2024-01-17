@@ -119,9 +119,6 @@ static void flush_context(unsigned int cpu)
 
 	/* Queue a TLB invalidate and flush the I-cache if necessary. */
 	cpumask_setall(&tlb_flush_pending);
-
-	if (icache_is_aivivt())
-		__flush_icache_all();
 }
 
 static bool check_update_reserved_asid(u64 asid, u64 newasid)
@@ -233,7 +230,12 @@ switch_mm_fastpath:
 
 	arm64_apply_bp_hardening();
 
-	cpu_switch_mm(mm->pgd, mm);
+	/*
+	 * Defer TTBR0_EL1 setting for user threads to uaccess_enable() when
+	 * emulating PAN.
+	 */
+	if (!system_uses_ttbr0_pan())
+		cpu_switch_mm(mm->pgd, mm);
 }
 
 /* Errata workaround post TTBRx_EL1 update. */

@@ -61,6 +61,11 @@
 		mmc1 = &usdhc2;
 		mmc2 = &usdhc3;
 		usbphy0 = &usbphy1;
+		can0 = &flexcan1;
+		can1 = &flexcan2;
+		can2 = &flexcan3;
+		i2c0 = &i2c_rpbus_0;
+		i2c1 = &i2c_rpbus_1;
 	};
 
 	memory@80000000 {
@@ -87,38 +92,40 @@
 		};
 		encoder_boot: encoder_boot@0x86000000 {
 			no-map;
-			reg = <0 0x86000000 0 0x2000000>;
+			reg = <0 0x86000000 0 0x400000>;
 		};
 		rpmsg_reserved: rpmsg@0x90000000 {
 			no-map;
 			reg = <0 0x90000000 0 0x400000>;
 		};
-
-		decoder_rpc: decoder_rpc@0x90400000 {
+		rpmsg_dma_reserved:rpmsg_dma@0x90400000 {
+			compatible = "shared-dma-pool";
 			no-map;
-			reg = <0 0x90400000 0 0x1000000>;
+			reg = <0 0x90400000 0 0x1C00000>;
 		};
-		encoder_rpc: encoder_rpc@0x91400000 {
+		decoder_rpc: decoder_rpc@0x92000000 {
 			no-map;
-			reg = <0 0x91400000 0 0x1000000>;
+			reg = <0 0x92000000 0 0x200000>;
+		};
+		encoder_rpc: encoder_rpc@0x92200000 {
+			no-map;
+			reg = <0 0x92200000 0 0x200000>;
 		};
 		dsp_reserved: dsp@0x92400000 {
 			no-map;
 			reg = <0 0x92400000 0 0x2000000>;
 		};
-
-		decoder_str: str@0x94400000 {
+		encoder_reserved: encoder_reserved@0x94400000 {
 			no-map;
-			reg = <0 0x94400000 0 0x1800000>;
+			reg = <0 0x94400000 0 0x800000>;
 		};
-
 
 		/* global autoconfigured region for contiguous allocations */
 		linux,cma {
 			compatible = "shared-dma-pool";
 			reusable;
-			size = <0 0x28000000>;
-			alloc-ranges = <0 0x96000000 0 0x28000000>;
+			size = <0 0x3c000000>;
+			alloc-ranges = <0 0x96000000 0 0x3c000000>;
 			linux,cma-default;
 		};
 
@@ -157,7 +164,7 @@
 
 	mu_m0: mu_m0@2d000000 {
 		compatible = "fsl,imx8-mu0-vpu-m0";
-		reg = <0x0 0x2d000000 0x0 0x10000>;
+		reg = <0x0 0x2d000000 0x0 0x20000>;
 		interrupts = <GIC_SPI 472 IRQ_TYPE_LEVEL_HIGH>;
 		fsl,vpu_ap_mu_id = <16>;
 		status = "okay";
@@ -165,14 +172,15 @@
 
 	mu1_m0: mu1_m0@2d020000 {
 		compatible = "fsl,imx8-mu1-vpu-m0";
-		reg = <0x0 0x2d020000 0x0 0x10000>;
+		reg = <0x0 0x2d020000 0x0 0x20000>;
 		interrupts = <GIC_SPI 473 IRQ_TYPE_LEVEL_HIGH>;
 		fsl,vpu_ap_mu_id = <17>;
 		status = "okay";
 	};
+
 	mu2_m0: mu2_m0@2d040000 {
 		compatible = "fsl,imx8-mu2-vpu-m0";
-		reg = <0x0 0x2d040000 0x0 0x10000>;
+		reg = <0x0 0x2d040000 0x0 0x20000>;
 		interrupts = <GIC_SPI 474 IRQ_TYPE_LEVEL_HIGH>;
 		fsl,vpu_ap_mu_id = <18>;
 		status = "okay";
@@ -182,21 +190,51 @@
 		compatible = "nxp,imx8qm-b0-vpudec", "nxp,imx8qxp-b0-vpudec";
 		boot-region = <&decoder_boot>;
 		rpc-region = <&decoder_rpc>;
-		str-region = <&decoder_str>;
 		reg = <0x0 0x2c000000 0x0 0x1000000>;
 		reg-names = "vpu_regs";
+		reg-csr = <0x2d080000>;
 		power-domains = <&pd_vpu_dec>;
 		status = "disabled";
 	};
 
 	vpu_encoder: vpu_encoder@2d000000 {
-		compatible = "nxp,imx8qm-b0-vpuenc", "nxp,imx8qxp-b0-vpuenc";
+		compatible = "nxp,imx8qm-b0-vpuenc";
+		#address-cells = <1>;
+		#size-cells = <1>;
+
 		boot-region = <&encoder_boot>;
 		rpc-region = <&encoder_rpc>;
-		reg = <0x0 0x2d000000 0x0 0x1000000>;
+		reserved-region = <&encoder_reserved>;
+		reg = <0x0 0x2d000000 0x0 0x1000000>,	/*VPU Encoder*/
+			<0x0 0x2c000000 0x0 0x2000000>; /*VPU*/
 		reg-names = "vpu_regs";
 		power-domains = <&pd_vpu_enc>;
+		reg-rpc-system = <0x40000000>;
+
+		resolution-max = <1920 1080>;
+		fps-max = <120>;
 		status = "disabled";
+
+		core0@1020000 {
+			compatible = "fsl,imx8-mu1-vpu-m0";
+			reg = <0x1020000 0x20000>;
+			reg-csr = <0x1090000 0x10000>;
+			interrupts = <GIC_SPI 473 IRQ_TYPE_LEVEL_HIGH>;
+			fsl,vpu_ap_mu_id = <17>;
+			fw-buf-size = <0x200000>;
+			rpc-buf-size = <0x80000>;
+			print-buf-size = <0x80000>;
+		};
+		core1@1040000 {
+			compatible = "fsl,imx8-mu2-vpu-m0";
+			reg = <0x1040000 0x20000>;
+			reg-csr = <0x10a0000 0x10000>;
+			interrupts = <GIC_SPI 474 IRQ_TYPE_LEVEL_HIGH>;
+			fsl,vpu_ap_mu_id = <18>;
+			fw-buf-size = <0x200000>;
+			rpc-buf-size = <0x80000>;
+			print-buf-size = <0x80000>;
+		};
 	};
 
 	clk: clk {
@@ -271,6 +309,7 @@
 	clocks = <&clk IMX8QM_A53_DIV>;
 	clock-latency = <61036>;
 	#cooling-cells = <2>;
+	/delete-property/ cpu-idle-states;
 };
 
 &A72_0 {
@@ -285,14 +324,32 @@
 	clocks = <&clk IMX8QM_A72_DIV>;
 	clock-latency = <61036>;
 	#cooling-cells = <2>;
+	/delete-property/ cpu-idle-states;
 };
 
+
 &imx8_gpu_ss {/*<freq-kHz vol-uV>*/
-	operating-points = <
-/*overdrive*/	800000	0  /*The first tuple is for core clock frequency*/
-		1000000	0  /*The second tuple is for shader clock frequency*/
-/*nominal*/	650000	0
-		700000	0
-/*underdrive*/	400000	0  /*core/shader clock share the same frequency on underdrive mode*/
-	>;
+       operating-points = <
+/*overdrive*/  800000  0  /*The first tuple is for core clock frequency*/
+               1000000 0  /*The second tuple is for shader clock frequency*/
+/*nominal*/    650000  0
+               700000  0
+/*underdrive*/ 400000  0  /*core/shader clock share the same frequency on underdrive mode*/
+       >;
+};
+
+&A53_1 {
+	/delete-property/ cpu-idle-states;
+};
+
+&A53_2 {
+	/delete-property/ cpu-idle-states;
+};
+
+&A53_3 {
+	/delete-property/ cpu-idle-states;
+};
+
+&A72_1 {
+	/delete-property/ cpu-idle-states;
 };

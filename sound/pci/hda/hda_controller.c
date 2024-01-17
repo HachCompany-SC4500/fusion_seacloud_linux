@@ -863,6 +863,10 @@ static int azx_rirb_get_response(struct hdac_bus *bus, unsigned int addr,
 		return -EIO;
 	}
 
+	/* no fallback mechanism? */
+	if (!chip->fallback_to_single_cmd)
+		return -EIO;
+
 	/* a fatal communication error; need either to reset or to fallback
 	 * to the single_cmd mode
 	 */
@@ -1343,6 +1347,9 @@ int azx_codec_configure(struct azx *chip)
 	list_for_each_codec_safe(codec, next, &chip->bus) {
 		snd_hda_codec_configure(codec);
 	}
+
+	if (!azx_bus(chip)->num_codecs)
+		return -ENODEV;
 	return 0;
 }
 EXPORT_SYMBOL_GPL(azx_codec_configure);

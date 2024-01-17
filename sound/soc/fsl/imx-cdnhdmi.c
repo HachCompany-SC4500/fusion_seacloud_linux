@@ -23,6 +23,7 @@
 #include <sound/soc-dapm.h>
 #include <sound/hdmi-codec.h>
 #include "../../../drivers/gpu/drm/imx/hdp/imx-hdp.h"
+#include "fsl_sai.h"
 
 #define SUPPORT_RATE_NUM 10
 #define SUPPORT_CHANNEL_NUM 10
@@ -98,7 +99,16 @@ static int imx_cdnhdmi_hw_params(struct snd_pcm_substream *substream,
 		return ret;
 	}
 
-	ret = snd_soc_dai_set_sysclk(cpu_dai, 0, 0, tx ? SND_SOC_CLOCK_OUT : SND_SOC_CLOCK_IN);
+
+	if (of_device_is_compatible(dev->of_node,
+				    "fsl,imx8mq-evk-cdnhdmi"))
+		ret = snd_soc_dai_set_sysclk(cpu_dai, FSL_SAI_CLK_MAST1,
+				256 * params_rate(params),
+				SND_SOC_CLOCK_OUT);
+	else
+		ret = snd_soc_dai_set_sysclk(cpu_dai, 0,
+				0,
+				tx ? SND_SOC_CLOCK_OUT : SND_SOC_CLOCK_IN);
 	if (ret) {
 		dev_err(dev, "failed to set cpu sysclk: %d\n", ret);
 		return ret;
@@ -466,7 +476,7 @@ static int imx_cdnhdmi_probe(struct platform_device *pdev)
 		data->dai.dai_fmt = SND_SOC_DAIFMT_I2S |
 			    SND_SOC_DAIFMT_NB_NF |
 			    SND_SOC_DAIFMT_CBS_CFS;
-		data->dai.codec_dai_name = "hdmi-hifi.0";
+		data->dai.codec_dai_name = "i2s-hifi";
 		data->dai.codec_name = "hdmi-audio-codec.1";
 		data->card.controls	= imx_cdnhdmi_ctrls;
 		data->card.num_controls	= ARRAY_SIZE(imx_cdnhdmi_ctrls);
@@ -478,7 +488,7 @@ static int imx_cdnhdmi_probe(struct platform_device *pdev)
 		data->dai.dai_fmt = SND_SOC_DAIFMT_I2S |
 			    SND_SOC_DAIFMT_NB_NF |
 			    SND_SOC_DAIFMT_CBM_CFM;
-		data->dai.codec_dai_name = "hdmi-hifi.0";
+		data->dai.codec_dai_name = "i2s-hifi";
 		data->dai.codec_name = "hdmi-audio-codec.2";
 		data->card.controls	= imx_cdnhdmi_rx_ctrls;
 		data->card.num_controls	= ARRAY_SIZE(imx_cdnhdmi_rx_ctrls);
@@ -516,6 +526,7 @@ fail:
 }
 
 static const struct of_device_id imx_cdnhdmi_dt_ids[] = {
+	{ .compatible = "fsl,imx8mq-evk-cdnhdmi", },
 	{ .compatible = "fsl,imx-audio-cdnhdmi", },
 	{ /* sentinel */ }
 };

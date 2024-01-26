@@ -47,6 +47,21 @@
 #include "API_AFE_mcu2_dp.h"
 #include "../../../../mxc/hdp/all.h"
 
+/* values of TX_TXCC_MGNFS_MULT_000 register for [voltage_swing][pre_emphasis]
+ * 0xFF means, that the combination is forbidden.
+static u16 mgnfsValues[4][4] = {{0x2B, 0x19, 0x0E, 0x02},
+						{0x21, 0x10, 0x01, 0xFF},
+						{0x18, 0x02, 0xFF, 0xFF},
+						{0x04, 0xFF, 0xFF, 0xFF}};
+
+* values of TX_TXCC_CPOST_MULT_00 register for [voltage_swing][pre_emphasis]
+* 0xFF means, that the combination is forbidden.
+static u16 cpostValues[4][4] = {{0x00, 0x14, 0x21, 0x29},
+						{0x00, 0x15, 0x20, 0xFF},
+						{0x00, 0x15, 0xFF, 0xFF},
+						{0x00, 0xFF, 0xFF, 0xFF}};
+*/
+
 static void afe_write_reg(state_struct *state,
 			  ENUM_AFE_LINK_RATE link_rate,
 			  unsigned int addr,
@@ -448,6 +463,9 @@ static void aux_cfg_t28hpc(state_struct *state)
 #endif
 }
 
+static void afe_disable_phy_clocks(state_struct *state);
+static void afe_enable_phy_clocks(state_struct *state);
+
 void afe_init_t28hpc(state_struct *state,
 		     int num_lanes,
 		     ENUM_AFE_LINK_RATE link_rate)
@@ -462,6 +480,8 @@ void afe_init_t28hpc(state_struct *state,
 		       link_rate);
 		return;
 	}
+	if (state->phy_init)
+		afe_disable_phy_clocks(state);
 
 	if (phy_reset_workaround) {
 		int k;
@@ -498,7 +518,7 @@ void afe_init_t28hpc(state_struct *state,
 	val = val | 0x0008;
 	Afe_write(state, PHY_PMA_CMN_CTRL1, val);
 
-	Afe_write(state, CMN_DIAG_PLL0_TEST_MODE, 0x0022);
+	Afe_write(state, CMN_DIAG_PLL0_TEST_MODE, 0x0020);
 	Afe_write(state, CMN_PSM_CLK_CTRL, 0x0016);
 
 	if (refclk == REFCLK_24MHZ) {
@@ -520,7 +540,7 @@ void afe_init_t28hpc(state_struct *state,
 
 	/* for differential clock on the refclk_p and refclk_m off chip pins:
 	 * PHY_PMA_CMN_CTRL1[6:4]=3'b000
-	 * val = val | 0x0030;
+	 * val = val | 0x0000;
 	 */
 	val = val | 0x0000; /* select external reference */
 	Afe_write(state, PHY_PMA_CMN_CTRL1, val);
@@ -577,6 +597,10 @@ void afe_power_t28hpc(state_struct *state,
 		       __func__, link_rate);
 		return;
 	}
+	if (state->phy_init)
+		afe_enable_phy_clocks(state);
+	else
+		state->phy_init = 1;
 
 	Afe_write(state, TX_DIAG_ACYA_0, 1);
 	Afe_write(state, TX_DIAG_ACYA_1, 1);
@@ -607,4 +631,81 @@ void afe_power_t28hpc(state_struct *state,
 
 	aux_cfg_t28hpc(state);
 
+}
+
+static void afe_disable_phy_clocks(state_struct *state)
+{
+	unsigned short val;
+	int i = 0;
+
+	/* Write PHY_HDP_MODE_CTL[3:0] with 0b1000. (Place the PHY lanes in
+	 * the A3 power state.)
+	 */
+	Afe_write(state, PHY_HDP_MODE_CTRL, 0x8);
+
+	/* Wait for PHY_HDP_MODE_CTL[7:4] == 0b1000 */
+	do {
+		val = Afe_read(state, PHY_HDP_MODE_CTRL);
+		val = val >> 7;
+		if (i++ % 10000 == 0)
+			pr_info("Wait for A3 ACK\n");
+	} while ((val & 1) !=  1);
+
+	/* gate PLL clocks */
+	val = Afe_read(state, PHY_HDP_CLK_CTL);
+	val &= ~(1 << 2);
+	Afe_write(state, PHY_HDP_CLK_CTL, val);
+
+	/* Wait for PHY_HDP_CLK_CTL[bit 3] == 0  */
+	do {
+		val = Afe_read(state, PHY_HDP_CLK_CTL);
+		val = val >> 3;
+		if (i++ % 10000 == 0)
+			pr_info("Wait for PHY_HDP_CLK_CTL[bit 3] == 0\n");
+	} while ((val & 1) !=  0);
+
+	/* disable PLL */
+	val = Afe_read(state, PHY_HDP_CLK_CTL);
+	val &= ~(1 << 0);
+	Afe_write(state, PHY_HDP_CLK_CTL, val);
+
+	/* Wait for PHY_HDP_CLK_CTL[bit 1] == 0  */
+	do {
+		val = Afe_read(state, PHY_HDP_CLK_CTL);
+		val = val >> 1;
+		if (i++ % 10000 == 0)
+			pr_info("Wait for PHY_HDP_CLK_CTL[bit 1] == 0\n");
+	} while ((val & 1) !=  0);
+}
+
+static void afe_enable_phy_clocks(state_struct *state)
+{
+	unsigned short val;
+	int i = 0;
+
+	/* enable PLL */
+	val = Afe_read(state, PHY_HDP_CLK_CTL);
+	val |= (1 << 0);
+	Afe_write(state, PHY_HDP_CLK_CTL, val);
+
+	/* Wait for PHY_HDP_CLK_CTL[bit 1] == 0  */
+	do {
+		val = Afe_read(state, PHY_HDP_CLK_CTL);
+		val = val >> 1;
+		if (i++ % 10000 == 0)
+			pr_info("Wait until PHY_HDP_CLK_CTL[bit 1] != 0\n");
+	} while ((val & 1) ==  0);
+
+	/* ungate PLL clocks */
+	val = Afe_read(state, PHY_HDP_CLK_CTL);
+	val |= (1 << 2);
+	Afe_write(state, PHY_HDP_CLK_CTL, val);
+
+	/* Wait for PHY_HDP_CLK_CTL[bit 3] == 0  */
+	do {
+		val = Afe_read(state, PHY_HDP_CLK_CTL);
+		val = val >> 3;
+		if (i++ % 10000 == 0)
+			pr_info("Wait until PHY_HDP_CLK_CTL[bit 3] != 0\n");
+	} while ((val & 1) == 0);
 }

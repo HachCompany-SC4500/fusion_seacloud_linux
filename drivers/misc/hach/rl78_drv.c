@@ -207,7 +207,7 @@ static int32_t rl78_req_line_read(void)
 static unsigned int rl78_irq_poll(struct file *file, struct poll_table_struct *wait)
 {
 	unsigned int mask = 0;
-	char req_lines = 0;
+	int32_t req_lines = 0;
 	char flag_cpy;
 	unsigned long flags;
 

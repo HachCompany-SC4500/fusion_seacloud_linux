@@ -46,7 +46,6 @@ int mx21_clocks_init(unsigned long lref, unsigned long fref);
 int mx27_clocks_init(unsigned long fref);
 int mx31_clocks_init(unsigned long fref);
 int mx35_clocks_init(void);
-int mx31_clocks_init_dt(void);
 struct platform_device *mxc_register_gpio(char *name, int id,
 	resource_size_t iobase, resource_size_t iosize, int irq, int irq_high);
 void mxc_set_cpu_type(unsigned int type);
@@ -80,16 +79,13 @@ void imx_gpc_hold_m4_in_sleep(void);
 void imx_gpc_release_m4_in_sleep(void);
 void mcc_receive_from_mu_buffer(unsigned int index, unsigned int *data);
 void mcc_send_via_mu_buffer(unsigned int index, unsigned int data);
+bool imx_mu_is_m4_in_low_freq(void);
 bool imx_mu_is_m4_in_stop(void);
 void imx_mu_set_m4_run_mode(void);
 #ifdef CONFIG_HAVE_IMX_MU
 int imx_mu_lpm_ready(bool ready);
-bool imx_mu_is_m4_in_low_freq(void);
-void imx_mu_set_m4_low_freq(void);
 #else
 static inline int imx_mu_lpm_ready(bool ready) { return 0; }
-static inline bool imx_mu_is_m4_in_low_freq(void) { return false; }
-static inline void imx_mu_set_m4_low_freq(void) { }
 #endif
 
 enum mxc_cpu_pwr_mode {
@@ -221,7 +217,12 @@ static inline void imx6_suspend(void __iomem *ocram_vbase) {}
 static inline void imx7_suspend(void __iomem *ocram_vbase) {}
 static inline void imx7ulp_suspend(void __iomem *ocram_vbase) {}
 #endif
+
+#ifdef CONFIG_SOC_IMX7ULP
 void pm_shutdown_notify_m4(void);
+#else
+static inline void pm_shutdown_notify_m4(void) {}
+#endif
 
 void imx6_pm_ccm_init(const char *ccm_compat);
 void imx6q_pm_init(void);

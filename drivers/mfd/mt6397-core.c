@@ -47,6 +47,9 @@ static const struct mfd_cell mt6323_devs[] = {
 	{
 		.name = "mt6323-regulator",
 		.of_compatible = "mediatek,mt6323-regulator"
+	}, {
+		.name = "mt6323-led",
+		.of_compatible = "mediatek,mt6323-led"
 	},
 };
 
@@ -306,8 +309,7 @@ static int mt6397_probe(struct platform_device *pdev)
 
 	default:
 		dev_err(&pdev->dev, "unsupported chip: %d\n", id);
-		ret = -ENODEV;
-		break;
+		return -ENODEV;
 	}
 
 	if (ret) {

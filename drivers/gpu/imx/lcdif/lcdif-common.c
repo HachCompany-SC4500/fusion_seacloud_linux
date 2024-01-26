@@ -85,7 +85,7 @@ static const struct of_device_id imx_lcdif_dt_ids[] = {
 	{ .compatible = "fsl,imx8mm-lcdif", .data = &imx8mm_pdata, },
 	{ /* sentinel */ }
 };
-MODULE_DEVICE_TABLE(of, lcdif_dt_ids);
+MODULE_DEVICE_TABLE(of, imx_lcdif_dt_ids);
 
 #ifdef CONFIG_PM
 static int imx_lcdif_runtime_suspend(struct device *dev);
@@ -279,6 +279,7 @@ EXPORT_SYMBOL(lcdif_get_bus_fmt_from_pix_fmt);
 
 int lcdif_set_pix_fmt(struct lcdif_soc *lcdif, u32 format)
 {
+	struct drm_format_name_buf format_name;
 	u32 ctrl = 0, ctrl1 = 0;
 
 	/* TODO: lcdif should be disabled to set pixel format */
@@ -350,7 +351,7 @@ int lcdif_set_pix_fmt(struct lcdif_soc *lcdif, u32 format)
 		break;
 	default:
 		dev_err(lcdif->dev, "unsupported pixel format: %s\n",
-			drm_get_format_name(format));
+			drm_get_format_name(format, &format_name));
 		return -EINVAL;
 	}
 

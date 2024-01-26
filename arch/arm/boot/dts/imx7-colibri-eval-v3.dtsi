@@ -41,6 +41,7 @@
  */
 
 #include <dt-bindings/input/input.h>
+#include <dt-bindings/pwm/pwm.h>
 
 / {
 	aliases {
@@ -52,11 +53,19 @@
 		stdout-path = "serial0:115200n8";
 	};
 
-	/* fixed crystal dedicated to mcp251x */
+	/* fixed crystal dedicated to mpc258x */
 	clk16m: clk16m {
 		compatible = "fixed-clock";
 		#clock-cells = <0>;
 		clock-frequency = <16000000>;
+	};
+
+	extcon_usbc_det: usbc_det {
+		compatible = "linux,extcon-usb-gpio";
+		debounce = <25>;
+		id-gpio = <&gpio7 14 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_usbc_det>;
 	};
 
 	gpio-keys {
@@ -71,14 +80,6 @@
 			debounce-interval = <10>;
 			gpio-key,wakeup;
 		};
-	};
-
-	extcon_usbc_det: usbc_det {
-		compatible = "linux,extcon-usb-gpio";
-		debounce = <25>;
-		id-gpio = <&gpio7 14 GPIO_ACTIVE_HIGH>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&pinctrl_usbc_det>;
 	};
 
 	reg_3v3: regulator-3v3 {
@@ -108,10 +109,10 @@
 };
 
 &bl {
-	brightness-levels = <0 4 8 16 32 64 128 255>;
-	default-brightness-level = <6>;
 	power-supply = <&reg_3v3>;
-
+	brightness-levels = <0 45 63 88 119 158 203 255>;
+	default-brightness-level = <4>;
+	pwms = <&pwm1 0 6666667 PWM_POLARITY_INVERTED>;
 	status = "okay";
 };
 
@@ -139,6 +140,8 @@
 		interrupt-parent = <&gpio5>;
 		interrupts = <2 IRQ_TYPE_EDGE_FALLING>;
 		spi-max-frequency = <10000000>;
+		vdd-supply = <&reg_3v3>;
+		xceiver-supply = <&reg_5v0>;
 		status = "okay";
 	};
 
@@ -237,6 +240,7 @@
 				vsync-active = <0>;
 				pixelclk-active = <0>;
 			};
+
 			/* WVGA Timing, TouchRevolution Fusion 7" */
 			timing_wvga2: 800x480pixclkact {
 				clock-frequency = <33260000>;
@@ -254,6 +258,7 @@
 				vsync-active = <0>;
 				pixelclk-active = <1>;
 			};
+
 			/* Standard SVGA timing */
 			timing_svga: 800x600 {
 				clock-frequency = <40000000>;
@@ -271,6 +276,7 @@
 				vsync-active = <1>;
 				pixelclk-active = <0>;
 			};
+
 			/* TouchRevolution Fusion 10"/CLAA101NC05 10.1 inch */
 			timing_wsvga: 1024x600 {
 				clock-frequency = <48000000>;
@@ -288,6 +294,7 @@
 				vsync-active = <0>;
 				pixelclk-active = <0>;
 			};
+
 			/* Standard XGA timing */
 			timing_xga: 1024x768 {
 				clock-frequency = <65000000>;
@@ -313,8 +320,6 @@
 	status = "okay";
 };
 
-/* the PCAPs use SODIMM 28/30, also used for PWM<B>, PWM<C>, aka pwm2, pwm3.
-   so if you enable one of the PCAP controllers disable the pwms */
 &pwm2 {
 	status = "okay";
 };
@@ -370,8 +375,8 @@
 	enable-sdio-wakeup;
 	keep-power-in-suspend;
 	wakeup-source;
-	status = "okay";
 	vmmc-supply = <&reg_3v3>;
+	status = "okay";
 };
 
 &iomuxc {

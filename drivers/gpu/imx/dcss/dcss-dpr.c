@@ -207,6 +207,9 @@ static int dcss_dpr_irq_config(struct dcss_soc *dcss, int ch_num)
 		return ch->irq;
 	}
 
+	/* mask interrupts off */
+	dcss_set(0xff, ch->base_reg + DCSS_DPR_IRQ_MASK);
+
 	ret = devm_request_irq(dcss->dev, ch->irq,
 			       dcss_dpr_irq_handler,
 			       IRQF_TRIGGER_HIGH,
@@ -216,8 +219,9 @@ static int dcss_dpr_irq_config(struct dcss_soc *dcss, int ch_num)
 		return ret;
 	}
 
-	/* mask interrupts off */
-	dcss_set(0xff, ch->base_reg + DCSS_DPR_IRQ_MASK);
+	disable_irq(ch->irq);
+
+	dcss_writel(0xfe, ch->base_reg + DCSS_DPR_IRQ_MASK);
 
 	return 0;
 }
@@ -335,6 +339,7 @@ void dcss_dpr_set_res(struct dcss_soc *dcss, int ch_num, u32 xres, u32 yres,
 
 	for (plane = 0; plane < max_planes; plane++) {
 		yres = plane == 1 ? yres >> 1 : yres;
+		adj_h = plane == 1 ? adj_h >> 1 : adj_h;
 
 		pix_x_wide = dcss_dpr_x_pix_wide_adjust(ch, xres, pix_format);
 		pix_y_high = dcss_dpr_y_pix_high_adjust(ch, yres, pix_format);
@@ -343,8 +348,8 @@ void dcss_dpr_set_res(struct dcss_soc *dcss, int ch_num, u32 xres, u32 yres,
 		if (pix_x_wide < adj_w)
 			pix_x_wide = adj_w;
 
-		if (pix_y_high != adj_h)
-			pix_y_high = plane == 0 ? adj_h : adj_h >> 1;
+		if (pix_y_high < adj_h)
+			pix_y_high = adj_h;
 
 		if (plane == 0)
 			ch->pitch = pix_x_wide;
@@ -385,7 +390,7 @@ void dcss_dpr_addr_set(struct dcss_soc *dcss, int ch_num, u32 luma_base_addr,
 		pitch = ch->pitch;
 
 	ch->frame_ctrl &= ~PITCH_MASK;
-	ch->frame_ctrl |= ((pitch << PITCH_POS) & PITCH_MASK);
+	ch->frame_ctrl |= (((u32)pitch << PITCH_POS) & PITCH_MASK);
 }
 EXPORT_SYMBOL(dcss_dpr_addr_set);
 
@@ -620,7 +625,6 @@ static void dcss_dpr_setup_components(struct dcss_soc *dcss, int ch_num,
 static int dcss_dpr_get_bpp(u32 pix_format)
 {
 	int bpp;
-	unsigned int depth;
 
 	switch (pix_format) {
 	case DRM_FORMAT_NV12:
@@ -637,7 +641,7 @@ static int dcss_dpr_get_bpp(u32 pix_format)
 		break;
 
 	default:
-		drm_fb_get_bpp_depth(pix_format, &depth, &bpp);
+		bpp = drm_format_plane_cpp(pix_format, 0) * 8;
 		break;
 	}
 
@@ -687,6 +691,7 @@ void dcss_dpr_format_set(struct dcss_soc *dcss, int ch_num, u32 pix_format,
 			 bool modifiers_present)
 {
 	struct dcss_dpr_ch *ch = &dcss->dpr_priv->ch[ch_num];
+	struct drm_format_name_buf format_name;
 	enum dcss_color_space dcss_cs;
 
 	dcss_cs = dcss_drm_fourcc_to_colorspace(pix_format);
@@ -696,7 +701,7 @@ void dcss_dpr_format_set(struct dcss_soc *dcss, int ch_num, u32 pix_format,
 	ch->use_dtrc = ch_num && modifiers_present;
 
 	dev_dbg(dcss->dev, "pix_format = %s, colorspace = %d, bpp = %d\n",
-		drm_get_format_name(pix_format), dcss_cs, ch->bpp);
+		drm_get_format_name(pix_format, &format_name), dcss_cs, ch->bpp);
 
 	dcss_dpr_yuv_en(dcss, ch_num, dcss_cs == DCSS_COLORSPACE_YUV);
 
@@ -730,9 +735,21 @@ void dcss_dpr_irq_enable(struct dcss_soc *dcss, bool en)
 {
 	struct dcss_dpr_priv *dpr = dcss->dpr_priv;
 
-	dcss_writel(en ? 0xfe : 0xff, dpr->ch[0].base_reg + DCSS_DPR_IRQ_MASK);
-	dcss_writel(en ? 0xfe : 0xff, dpr->ch[1].base_reg + DCSS_DPR_IRQ_MASK);
-	dcss_writel(en ? 0xfe : 0xff, dpr->ch[2].base_reg + DCSS_DPR_IRQ_MASK);
+	if (!en) {
+		disable_irq_nosync(dpr->ch[0].irq);
+		disable_irq_nosync(dpr->ch[1].irq);
+		disable_irq_nosync(dpr->ch[2].irq);
+
+		return;
+	}
+
+	dcss_clr(1, dpr->ch[0].base_reg + DCSS_DPR_IRQ_NONMASK_STATUS);
+	dcss_clr(1, dpr->ch[1].base_reg + DCSS_DPR_IRQ_NONMASK_STATUS);
+	dcss_clr(1, dpr->ch[2].base_reg + DCSS_DPR_IRQ_NONMASK_STATUS);
+
+	enable_irq(dpr->ch[0].irq);
+	enable_irq(dpr->ch[1].irq);
+	enable_irq(dpr->ch[2].irq);
 }
 
 void dcss_dpr_set_rotation(struct dcss_soc *dcss, int ch_num, u32 rotation)
@@ -741,14 +758,14 @@ void dcss_dpr_set_rotation(struct dcss_soc *dcss, int ch_num, u32 rotation)
 
 	ch->frame_ctrl &= ~(HFLIP_EN | VFLIP_EN | ROT_ENC_MASK);
 
-	ch->frame_ctrl |= rotation & DRM_REFLECT_X ? HFLIP_EN : 0;
-	ch->frame_ctrl |= rotation & DRM_REFLECT_Y ? VFLIP_EN : 0;
+	ch->frame_ctrl |= rotation & DRM_MODE_REFLECT_X ? HFLIP_EN : 0;
+	ch->frame_ctrl |= rotation & DRM_MODE_REFLECT_Y ? VFLIP_EN : 0;
 
-	if (rotation & DRM_ROTATE_90)
+	if (rotation & DRM_MODE_ROTATE_90)
 		ch->frame_ctrl |= 1 << ROT_ENC_POS;
-	else if (rotation & DRM_ROTATE_180)
+	else if (rotation & DRM_MODE_ROTATE_180)
 		ch->frame_ctrl |= 2 << ROT_ENC_POS;
-	else if (rotation & DRM_ROTATE_270)
+	else if (rotation & DRM_MODE_ROTATE_270)
 		ch->frame_ctrl |= 3 << ROT_ENC_POS;
 }
 EXPORT_SYMBOL(dcss_dpr_set_rotation);

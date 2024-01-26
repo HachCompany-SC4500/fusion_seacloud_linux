@@ -79,7 +79,7 @@ pdu_write_u(struct p9_fcall *pdu, struct iov_iter *from, size_t size)
 {
 	size_t len = min(pdu->capacity - pdu->size, size);
 	struct iov_iter i = *from;
-	if (copy_from_iter(&pdu->sdata[pdu->size], len, &i) != len)
+	if (!copy_from_iter_full(&pdu->sdata[pdu->size], len, &i))
 		len = 0;
 
 	pdu->size += len;
@@ -570,9 +570,10 @@ int p9stat_read(struct p9_client *clnt, char *buf, int len, struct p9_wstat *st)
 	if (ret) {
 		p9_debug(P9_DEBUG_9P, "<<< p9stat_read failed: %d\n", ret);
 		trace_9p_protocol_dump(clnt, &fake_pdu);
+		return ret;
 	}
 
-	return ret;
+	return fake_pdu.offset;
 }
 EXPORT_SYMBOL(p9stat_read);
 

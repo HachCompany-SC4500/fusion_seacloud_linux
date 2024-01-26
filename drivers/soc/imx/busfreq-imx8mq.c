@@ -33,8 +33,6 @@
 #include <linux/smp.h>
 #include <linux/suspend.h>
 #include <soc/imx/fsl_sip.h>
-#include <soc/imx/revision.h>
-#include <soc/imx8/soc.h>
 
 #define HIGH_FREQ_3200MTS	0x0
 #define AUDIO_FREQ_400MTS	0x1
@@ -104,8 +102,6 @@ static void update_bus_freq(int target_freq)
 
 static void reduce_bus_freq(void)
 {
-	u32 rate;
-
 	high_bus_freq_mode = 0;
 
 	/*
@@ -117,39 +113,17 @@ static void reduce_bus_freq(void)
 		if (cur_bus_freq_mode == BUS_FREQ_HIGH) {
 
 			if (of_machine_is_compatible("fsl,imx8mq")) {
-				if (imx8_get_soc_revision() < IMX_CHIP_REVISION_2_1) {
-					update_bus_freq(LOW_BUS_FREQ_667MTS);
+				update_bus_freq(LOW_BUS_FREQ_667MTS);
 
-					/*
-					 * the dram_apb and dram_core clk rate is changed
-					 * in ATF side, below two lines of code is just used
-					 * to upate the clock tree info in kernel side.
-					 */
-					clk_set_rate(dram_apb_pre_div, 160000000);
-					clk_get_rate(dram_pll_clk);
-				} else {
-					/* prepare the necessary clk before frequency change */
-					clk_prepare_enable(sys1_pll_40m);
-					clk_prepare_enable(dram_alt_root);
-					clk_prepare_enable(sys1_pll_100m);
-
-					update_bus_freq(LOW_BUS_FREQ_100MTS);
-
-					clk_set_parent(dram_alt_src, sys1_pll_100m);
-					clk_set_parent(dram_core_clk, dram_alt_root);
-					clk_set_parent(dram_apb_src, sys1_pll_40m);
-					clk_set_rate(dram_apb_pre_div, 20000000);
-					clk_disable_unprepare(sys1_pll_100m);
-					clk_disable_unprepare(sys1_pll_40m);
-					clk_disable_unprepare(dram_alt_root);
-				}
+				/*
+				 * the dram_apb and dram_core clk rate is changed
+				 * in ATF side, below two lines of code is just used
+				 * to upate the clock tree info in kernel side.
+				 */
+				clk_set_rate(dram_apb_pre_div, 160000000);
+				clk_get_rate(dram_pll_clk);
 				/* reduce the NOC & bus clock */
-				rate = clk_get_rate(noc_div);
-				if (rate == 0) {
-					WARN_ON(1);
-					return;
-				}
-				clk_set_rate(noc_div, rate / 8);
+				clk_set_rate(noc_div, clk_get_rate(noc_div) / 8);
 			} else {
 				/* prepare the necessary clk before frequency change */
 				clk_prepare_enable(sys1_pll_40m);
@@ -168,19 +142,10 @@ static void reduce_bus_freq(void)
 				clk_disable_unprepare(dram_alt_root);
 
 				/* change the NOC rate */
-				rate = clk_get_rate(noc_div);
-				if (rate == 0) {
-					WARN_ON(1);
-					return;
-				}
-				clk_set_rate(noc_div, rate / 5);
+				clk_set_rate(noc_div, clk_get_rate(noc_div) / 5);
 			}
-			rate = clk_get_rate(ahb_div);
-			if (rate == 0) {
-				WARN_ON(1);
-				return;
-			}
-			clk_set_rate(ahb_div, rate / 6);
+
+			clk_set_rate(ahb_div, clk_get_rate(ahb_div) / 6);
 			clk_set_parent(main_axi_src, osc_25m);
 		}
 
@@ -189,40 +154,14 @@ static void reduce_bus_freq(void)
 		cur_bus_freq_mode = BUS_FREQ_AUDIO;
 	} else {
 		if (cur_bus_freq_mode == BUS_FREQ_HIGH) {
+
 			if (of_machine_is_compatible("fsl,imx8mq")) {
-				if (imx8_get_soc_revision() < IMX_CHIP_REVISION_2_1) {
-					update_bus_freq(LOW_BUS_FREQ_667MTS);
+				update_bus_freq(LOW_BUS_FREQ_667MTS);
 
-					/*
-					 * the dram_apb and dram_core clk rate is changed
-					 * in ATF side, below two lines of code is just used
-					 * to upate the clock tree info in kernel side.
-					 */
-					clk_set_rate(dram_apb_pre_div, 160000000);
-					clk_get_rate(dram_pll_clk);
-				} else {
-					/* prepare the necessary clk before frequency change */
-					clk_prepare_enable(sys1_pll_40m);
-					clk_prepare_enable(dram_alt_root);
-					clk_prepare_enable(sys1_pll_100m);
-
-					update_bus_freq(LOW_BUS_FREQ_100MTS);
-
-					clk_set_parent(dram_alt_src, sys1_pll_100m);
-					clk_set_parent(dram_core_clk, dram_alt_root);
-					clk_set_parent(dram_apb_src, sys1_pll_40m);
-					clk_set_rate(dram_apb_pre_div, 20000000);
-					clk_disable_unprepare(sys1_pll_100m);
-					clk_disable_unprepare(sys1_pll_40m);
-					clk_disable_unprepare(dram_alt_root);
-				}
+				clk_set_rate(dram_apb_pre_div, 160000000);
+				clk_get_rate(dram_pll_clk);
 				/* reduce the NOC & bus clock */
-				rate = clk_get_rate(noc_div);
-				if (rate == 0) {
-					WARN_ON(1);
-					return;
-				}
-				clk_set_rate(noc_div, rate / 8);
+				clk_set_rate(noc_div, clk_get_rate(noc_div) / 8);
 			} else {
 				/* prepare the necessary clk before frequency change */
 				clk_prepare_enable(sys1_pll_40m);
@@ -241,20 +180,10 @@ static void reduce_bus_freq(void)
 				clk_disable_unprepare(dram_alt_root);
 
 				/* change the NOC clock rate  */
-				rate = clk_get_rate(noc_div);
-				if (rate == 0) {
-					WARN_ON(1);
-					return;
-				}
-				clk_set_rate(noc_div, rate / 5);
+				clk_set_rate(noc_div, clk_get_rate(noc_div) / 5);
 			}
 
-			rate = clk_get_rate(ahb_div);
-			if (rate == 0) {
-				WARN_ON(1);
-				return;
-			}
-			clk_set_rate(ahb_div, rate / 6);
+			clk_set_rate(ahb_div, clk_get_rate(ahb_div) / 6);
 			clk_set_parent(main_axi_src, osc_25m);
 		}
 
@@ -324,27 +253,11 @@ static int set_high_bus_freq(int high_bus_freq)
 		return 0;
 
 	if (of_machine_is_compatible("fsl,imx8mq")) {
-		if (imx8_get_soc_revision() < IMX_CHIP_REVISION_2_1) {
-			/* switch the DDR freqeuncy */
-			update_bus_freq(HIGH_FREQ_3200MTS);
+		/* switch the DDR freqeuncy */
+		update_bus_freq(HIGH_FREQ_3200MTS);
 
-			clk_set_rate(dram_apb_pre_div, 200000000);
-			clk_get_rate(dram_pll_clk);
-		} else {
-			/*  enable the clks needed in frequency */
-			clk_prepare_enable(sys1_pll_800m);
-			clk_prepare_enable(dram_pll_clk);
-
-			/* switch the DDR freqeuncy */
-			update_bus_freq(HIGH_FREQ_3200MTS);
-
-			/* correct the clock tree info */
-			clk_set_parent(dram_apb_src, sys1_pll_800m);
-			clk_set_rate(dram_apb_pre_div, 160000000);
-			clk_set_parent(dram_core_clk, dram_pll_clk);
-			clk_disable_unprepare(sys1_pll_800m);
-			clk_disable_unprepare(dram_pll_clk);
-		}
+		clk_set_rate(dram_apb_pre_div, 200000000);
+		clk_get_rate(dram_pll_clk);
 		clk_set_rate(noc_div, 800000000);
 	} else {
 		/*  enable the clks needed in frequency */

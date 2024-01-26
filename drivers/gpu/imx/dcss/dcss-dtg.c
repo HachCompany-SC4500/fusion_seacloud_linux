@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017-2018 NXP
+ * Copyright (C) 2017 NXP
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -16,7 +16,6 @@
 #include <linux/bitops.h>
 #include <linux/io.h>
 #include <linux/clk.h>
-#include <linux/of.h>
 #include <linux/delay.h>
 #include <linux/platform_device.h>
 #include <linux/interrupt.h>
@@ -89,11 +88,6 @@
 #define DCSS_DTG_DBY_BL					0x78
 #define DCSS_DTG_DBY_EL					0x7C
 
-/* Maximum Video PLL frequency */
-#define MAX_PLL_FREQ 1200000000
-/* Mininum pixel clock in kHz */
-#define MIN_PIX_CLK 74250
-
 static struct dcss_debug_reg dtg_debug_reg[] = {
 	DCSS_DBG_REG(DCSS_DTG_TC_CONTROL_STATUS),
 	DCSS_DBG_REG(DCSS_DTG_TC_DTG),
@@ -128,14 +122,6 @@ static struct dcss_debug_reg dtg_debug_reg[] = {
 	DCSS_DBG_REG(DCSS_DTG_DBY_EL),
 };
 
-struct mode_config {
-	struct clk *clk_src;
-	unsigned long out_rate;
-	int clock;
-	int mode_clock;
-	struct list_head list;
-};
-
 struct dcss_dtg_priv {
 	struct dcss_soc *dcss;
 	void __iomem *base_reg;
@@ -144,7 +130,6 @@ struct dcss_dtg_priv {
 	u32 ctx_id;
 
 	bool in_use;
-	bool hdmi_output;
 
 	u32 dis_ulc_x;
 	u32 dis_ulc_y;
@@ -154,8 +139,6 @@ struct dcss_dtg_priv {
 	u32 use_global;
 
 	int ctxld_kick_irq;
-	bool ctxld_kick_irq_en;
-	struct list_head valid_modes;
 
 	/*
 	 * This will be passed on by DRM CRTC so that we can signal when DTG has
@@ -197,12 +180,9 @@ static irqreturn_t dcss_dtg_irq_handler(int irq, void *data)
 
 	status = dcss_readl(dtg->base_reg + DCSS_DTG_INT_STATUS);
 
-	if (!(status & LINE0_IRQ))
-		return IRQ_HANDLED;
-
 	dcss_ctxld_kick(dtg->dcss);
 
-	dcss_writel(status & LINE0_IRQ, dtg->base_reg + DCSS_DTG_INT_CONTROL);
+	dcss_writel(status & LINE1_IRQ, dtg->base_reg + DCSS_DTG_INT_CONTROL);
 
 	return IRQ_HANDLED;
 }
@@ -228,21 +208,12 @@ static int dcss_dtg_irq_config(struct dcss_dtg_priv *dtg)
 		return ret;
 	}
 
-	disable_irq(dtg->ctxld_kick_irq);
-
-	dtg->ctxld_kick_irq_en = false;
-
-	dcss_update(LINE0_IRQ, LINE0_IRQ, dtg->base_reg + DCSS_DTG_INT_MASK);
-
 	return 0;
 }
 
 int dcss_dtg_init(struct dcss_soc *dcss, unsigned long dtg_base)
 {
-	struct device_node *node = dcss->dev->of_node;
 	struct dcss_dtg_priv *dtg;
-	int len;
-	const char *disp_dev;
 
 	dtg = devm_kzalloc(dcss->dev, sizeof(*dtg), GFP_KERNEL);
 	if (!dtg)
@@ -263,17 +234,11 @@ int dcss_dtg_init(struct dcss_soc *dcss, unsigned long dtg_base)
 	dtg->ctx_id = CTX_DB;
 #endif
 
-	disp_dev = of_get_property(node, "disp-dev", &len);
-	if (!disp_dev || !strncmp(disp_dev, "hdmi_disp", 9))
-		dtg->hdmi_output = true;
-
 	dtg->alpha = 255;
 	dtg->use_global = 0;
 
 	dtg->control_status |= OVL_DATA_MODE | BLENDER_VIDEO_ALPHA_SEL |
 		((dtg->alpha << DEFAULT_FG_ALPHA_POS) & DEFAULT_FG_ALPHA_MASK);
-
-	INIT_LIST_HEAD(&dtg->valid_modes);
 
 	return dcss_dtg_irq_config(dtg);
 }
@@ -281,187 +246,9 @@ int dcss_dtg_init(struct dcss_soc *dcss, unsigned long dtg_base)
 void dcss_dtg_exit(struct dcss_soc *dcss)
 {
 	struct dcss_dtg_priv *dtg = dcss->dtg_priv;
-	struct mode_config *config;
-	struct list_head *pos, *tmp;
 
 	/* stop DTG */
 	dcss_writel(DTG_START, dtg->base_reg + DCSS_DTG_TC_CONTROL_STATUS);
-
-	list_for_each_safe(pos, tmp, &dtg->valid_modes) {
-		config = list_entry(pos, struct mode_config, list);
-		list_del(pos);
-		devm_kfree(dcss->dev, config);
-	}
-}
-
-static struct clk *dcss_dtg_find_src_clk(struct dcss_soc *dcss, int crtc_clock,
-	       unsigned long *out_rate)
-{
-	struct clk *src = NULL;
-	struct clk *p = dcss->pix_clk;
-	struct clk *src_clk[MAX_CLK_SRC];
-	int num_src_clk = ARRAY_SIZE(dcss->src_clk);
-	unsigned long src_rate;
-	int i;
-
-	for (i = 0; i < num_src_clk; i++)
-		src_clk[i] = dcss->src_clk[i];
-
-	/*
-	 * First, check the current clock source and find the clock
-	 * selector
-	 */
-	while (p) {
-		struct clk *pp = clk_get_parent(p);
-
-		for (i = 0; i < num_src_clk; i++)
-			if (src_clk[i] && clk_is_match(pp, src_clk[i])) {
-				src = pp;
-				dcss->sel_clk = p;
-				src_clk[i] = NULL;
-				break;
-			}
-
-		if (src)
-			break;
-
-		p = pp;
-	}
-
-	while (!IS_ERR_OR_NULL(src)) {
-		/* Check if current rate satisfies our needs */
-		src_rate = clk_get_rate(src);
-		*out_rate = clk_get_rate(dcss->pll_clk);
-		if (!(*out_rate % crtc_clock))
-			break;
-
-		/* Find the highest rate that fits our needs */
-		*out_rate = crtc_clock * (MAX_PLL_FREQ / crtc_clock);
-		if (!(*out_rate % src_rate))
-			break;
-
-		/* Get the next clock source available */
-		src = NULL;
-		for (i = 0; i < num_src_clk; i++) {
-			if (IS_ERR_OR_NULL(src_clk[i]))
-				continue;
-			src = src_clk[i];
-			src_clk[i] = NULL;
-			break;
-		}
-	}
-
-	return src;
-}
-
-int dcss_dtg_mode_valid(struct dcss_soc *dcss, int clock, int crtc_clock)
-{
-	struct dcss_dtg_priv *dtg = dcss->dtg_priv;
-	struct clk *src = NULL;
-	unsigned long out_rate;
-	struct mode_config *config;
-
-	/*
-	 * In order to verify possible clock sources we need to have at least
-	 * two of them. Also, do not check the clock if the output is hdmi.
-	 */
-	if (dtg->hdmi_output || !dcss->src_clk[0] || !dcss->src_clk[1])
-		return 0;
-
-	/*
-	 * TODO: Currently, only modes with pixel clock higher or equal to
-	 * 74250kHz are working. Limit to these modes until we figure out how
-	 * to handle the rest of the display modes.
-	 */
-	if (clock < MIN_PIX_CLK)
-		return 1;
-
-	/* Transform clocks in Hz */
-	clock *= 1000;
-	crtc_clock *= 1000;
-
-	if (!crtc_clock)
-		crtc_clock = clock;
-
-	/* Skip saving the config again */
-	list_for_each_entry(config, &dtg->valid_modes, list)
-		if (config->clock == clock)
-			return 0;
-
-	src = dcss_dtg_find_src_clk(dcss, crtc_clock, &out_rate);
-
-	if (IS_ERR_OR_NULL(src))
-		return 1;
-
-	clk_set_rate(dcss->pll_clk, out_rate);
-
-	/* Save this configuration for later use */
-	config = devm_kzalloc(dcss->dev,
-		 sizeof(struct mode_config), GFP_KERNEL);
-	list_add(&config->list, &dtg->valid_modes);
-	config->clk_src = src;
-	config->out_rate = out_rate;
-	config->clock = clock;
-	config->mode_clock = crtc_clock;
-
-	return 0;
-}
-EXPORT_SYMBOL(dcss_dtg_mode_valid);
-
-int dcss_dtg_mode_fixup(struct dcss_soc *dcss, int clock)
-{
-	struct dcss_dtg_priv *dtg = dcss->dtg_priv;
-	struct mode_config *config;
-	struct clk *src;
-
-	/* Make sure that current mode can get the required clock */
-	list_for_each_entry(config, &dtg->valid_modes, list)
-		if (config->clock == clock * 1000) {
-			if (dcss->clks_on)
-				clk_disable_unprepare(dcss->pix_clk);
-			src = clk_get_parent(dcss->sel_clk);
-			if (!clk_is_match(src, config->clk_src))
-				clk_set_parent(dcss->sel_clk, config->clk_src);
-			if (clk_get_rate(dcss->pll_clk) != config->out_rate)
-				clk_set_rate(dcss->pll_clk, config->out_rate);
-			dev_dbg(dcss->dev, "pll rate: %ld (actual %ld)\n",
-				config->out_rate, clk_get_rate(dcss->pll_clk));
-			if (dcss->clks_on)
-				clk_prepare_enable(dcss->pix_clk);
-			break;
-		}
-
-	return 0;
-
-}
-EXPORT_SYMBOL(dcss_dtg_mode_fixup);
-
-static void dcss_dtg_set_clock(struct dcss_soc *dcss, unsigned long clock)
-{
-	struct dcss_dtg_priv *dtg = dcss->dtg_priv;
-	struct mode_config *config;
-
-	/*
-	 * Before setting the clock rate, we need to be sure that the clock
-	 * has the right source to output the required rate.
-	 */
-	list_for_each_entry(config, &dtg->valid_modes, list) {
-		if (config->clock == clock) {
-			struct clk *src;
-
-			src = clk_get_parent(dcss->sel_clk);
-			if (!clk_is_match(src, config->clk_src))
-				clk_set_parent(dcss->sel_clk, config->clk_src);
-			if (clk_get_rate(dcss->pll_clk) != config->out_rate)
-				clk_set_rate(dcss->pll_clk, config->out_rate);
-			dev_dbg(dcss->dev, "pll rate: %ld (actual %ld)\n",
-				config->out_rate, clk_get_rate(dcss->pll_clk));
-			clock = config->mode_clock;
-			break;
-		}
-	}
-
-	clk_set_rate(dcss->pix_clk, clock);
 }
 
 void dcss_dtg_sync_set(struct dcss_soc *dcss, struct videomode *vm)
@@ -471,8 +258,6 @@ void dcss_dtg_sync_set(struct dcss_soc *dcss, struct videomode *vm)
 	u16 dis_ulc_x, dis_ulc_y;
 	u16 dis_lrc_x, dis_lrc_y;
 	u32 sb_ctxld_trig, db_ctxld_trig;
-	u32 pixclock = vm->pixelclock;
-	u32 actual_clk;
 
 	dev_dbg(dcss->dev, "hfront_porch = %d\n", vm->hfront_porch);
 	dev_dbg(dcss->dev, "hback_porch = %d\n", vm->hback_porch);
@@ -482,7 +267,6 @@ void dcss_dtg_sync_set(struct dcss_soc *dcss, struct videomode *vm)
 	dev_dbg(dcss->dev, "vback_porch = %d\n", vm->vback_porch);
 	dev_dbg(dcss->dev, "vsync_len = %d\n", vm->vsync_len);
 	dev_dbg(dcss->dev, "vactive = %d\n", vm->vactive);
-	dev_dbg(dcss->dev, "pixelclock = %lu\n", vm->pixelclock);
 
 	dtg_lrc_x = vm->hfront_porch + vm->hback_porch + vm->hsync_len +
 		    vm->hactive - 1;
@@ -494,31 +278,11 @@ void dcss_dtg_sync_set(struct dcss_soc *dcss, struct videomode *vm)
 	dis_lrc_y = vm->vsync_len + vm->vfront_porch + vm->vback_porch +
 		    vm->vactive - 1;
 
-	clk_disable_unprepare(dcss->pix_clk);
-	if (dtg->hdmi_output) {
-		int err;
-		/*
-		 * At this point, since pix_clk is disabled, the pll_clk
-		 * should also be disabled, so re-parenting should be safe
-		 */
-		err = clk_set_parent(dcss->pll_clk, dcss->src_clk[0]);
-		if (err < 0)
-			dev_warn(dcss->dev, "clk_set_parent() returned %d",
-				 err);
-		clk_set_rate(dcss->pix_clk, vm->pixelclock);
-	} else {
-		dcss_dtg_set_clock(dcss, pixclock);
-	}
-	clk_prepare_enable(dcss->pix_clk);
-
-	actual_clk = clk_get_rate(dcss->pix_clk);
-	if (pixclock != actual_clk) {
-		dev_info(dcss->dev,
-			 "Pixel clock set to %u kHz instead of %u kHz, "
-			 "difference is %d Hz\n",
-			 (actual_clk / 1000), (pixclock / 1000),
-			 (int)(actual_clk - pixclock));
-	}
+	clk_disable_unprepare(dcss->pout_clk);
+	clk_disable_unprepare(dcss->pdiv_clk);
+	clk_set_rate(dcss->pdiv_clk, vm->pixelclock);
+	clk_prepare_enable(dcss->pdiv_clk);
+	clk_prepare_enable(dcss->pout_clk);
 
 	msleep(50);
 
@@ -540,10 +304,10 @@ void dcss_dtg_sync_set(struct dcss_soc *dcss, struct videomode *vm)
 	dcss_dtg_write(dtg, sb_ctxld_trig | db_ctxld_trig, DCSS_DTG_TC_CTXLD);
 
 	/* vblank trigger */
-	dcss_dtg_write(dtg, 0, DCSS_DTG_LINE1_INT);
+	dcss_dtg_write(dtg, 0, DCSS_DTG_LINE0_INT);
 
 	/* CTXLD trigger */
-	dcss_dtg_write(dtg, ((90 * dis_lrc_y) / 100) << 16, DCSS_DTG_LINE0_INT);
+	dcss_dtg_write(dtg, ((98 * dis_lrc_y) / 100) << 16, DCSS_DTG_LINE1_INT);
 }
 EXPORT_SYMBOL(dcss_dtg_sync_set);
 
@@ -705,51 +469,21 @@ EXPORT_SYMBOL(dcss_dtg_ch_enable);
 
 void dcss_dtg_vblank_irq_enable(struct dcss_soc *dcss, bool en)
 {
+	void __iomem *reg;
 	struct dcss_dtg_priv *dtg = dcss->dtg_priv;
-	u32 status;
-
-	dcss_update(LINE1_IRQ, LINE1_IRQ, dtg->base_reg + DCSS_DTG_INT_MASK);
-
-	dcss_dpr_irq_enable(dcss, en);
-
-	if (en) {
-		status = dcss_readl(dtg->base_reg + DCSS_DTG_INT_STATUS);
-		dcss_writel(status & LINE1_IRQ,
-			    dtg->base_reg + DCSS_DTG_INT_CONTROL);
-	}
-}
-
-void dcss_dtg_ctxld_kick_irq_enable(struct dcss_soc *dcss, bool en)
-{
-	struct dcss_dtg_priv *dtg = dcss->dtg_priv;
-	u32 status;
+	u32 val = en ? (LINE0_IRQ | LINE1_IRQ) : 0;
 
 	/* need to keep the CTXLD kick interrupt ON if DTRC is used */
 	if (!en && (dcss_dtrc_is_running(dcss, 1) ||
 		    dcss_dtrc_is_running(dcss, 2)))
-		return;
+		val |= LINE1_IRQ;
 
-	if (en) {
-		status = dcss_readl(dtg->base_reg + DCSS_DTG_INT_STATUS);
+	reg = dtg->base_reg + DCSS_DTG_INT_MASK;
 
-		if (!dtg->ctxld_kick_irq_en) {
-			dcss_writel(status & LINE0_IRQ,
-				    dtg->base_reg + DCSS_DTG_INT_CONTROL);
-			enable_irq(dtg->ctxld_kick_irq);
-			dtg->ctxld_kick_irq_en = true;
-			return;
-		}
+	dcss_update(val, LINE0_IRQ | LINE1_IRQ, reg);
 
-		return;
-	}
-
-	if (!dtg->ctxld_kick_irq_en)
-		return;
-
-	disable_irq_nosync(dtg->ctxld_kick_irq);
-	dtg->ctxld_kick_irq_en = false;
+	dcss_dpr_irq_enable(dcss, en);
 }
-EXPORT_SYMBOL(dcss_dtg_ctxld_kick_irq_enable);
 
 void dcss_dtg_vblank_irq_clear(struct dcss_soc *dcss)
 {
@@ -758,14 +492,5 @@ void dcss_dtg_vblank_irq_clear(struct dcss_soc *dcss)
 
 	reg = dtg->base_reg + DCSS_DTG_INT_CONTROL;
 
-	dcss_update(LINE1_IRQ, LINE1_IRQ, reg);
+	dcss_update(LINE0_IRQ, LINE0_IRQ, reg);
 }
-
-bool dcss_dtg_vblank_irq_valid(struct dcss_soc *dcss)
-{
-	struct dcss_dtg_priv *dtg = dcss->dtg_priv;
-
-	return !!(dcss_readl(dtg->base_reg + DCSS_DTG_INT_STATUS) & LINE1_IRQ);
-}
-EXPORT_SYMBOL(dcss_dtg_vblank_irq_valid);
-

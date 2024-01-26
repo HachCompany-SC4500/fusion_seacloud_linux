@@ -33,7 +33,6 @@
 #include <linux/seq_file.h>
 #include <linux/time.h>
 #include <linux/quotaops.h>
-#include <linux/sched/signal.h>
 
 #define MLOG_MASK_PREFIX ML_DLM_GLUE
 #include <cluster/masklog.h>

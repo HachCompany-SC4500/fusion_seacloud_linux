@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
  * (C) 2001 Clemson University and The University of Chicago
  *
@@ -74,7 +73,6 @@ static int orangefs_create(struct inode *dir,
 	d_instantiate_new(dentry, inode);
 	orangefs_set_timeout(dentry);
 	ORANGEFS_I(inode)->getattr_time = jiffies - 1;
-	ORANGEFS_I(inode)->getattr_mask = STATX_BASIC_STATS;
 
 	gossip_debug(GOSSIP_NAME_DEBUG,
 		     "%s: dentry instantiated for %pd\n",
@@ -329,7 +327,6 @@ static int orangefs_symlink(struct inode *dir,
 	d_instantiate_new(dentry, inode);
 	orangefs_set_timeout(dentry);
 	ORANGEFS_I(inode)->getattr_time = jiffies - 1;
-	ORANGEFS_I(inode)->getattr_mask = STATX_BASIC_STATS;
 
 	gossip_debug(GOSSIP_NAME_DEBUG,
 		     "Inode (Symlink) %pU -> %pd\n",
@@ -393,7 +390,6 @@ static int orangefs_mkdir(struct inode *dir, struct dentry *dentry, umode_t mode
 	d_instantiate_new(dentry, inode);
 	orangefs_set_timeout(dentry);
 	ORANGEFS_I(inode)->getattr_time = jiffies - 1;
-	ORANGEFS_I(inode)->getattr_mask = STATX_BASIC_STATS;
 
 	gossip_debug(GOSSIP_NAME_DEBUG,
 		     "Inode (Directory) %pU -> %pd\n",

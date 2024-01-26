@@ -861,7 +861,7 @@ static int chipio_write_address(struct hda_codec *codec,
 				  chip_addx >> 16);
 	}
 
-	spec->curr_chip_addx = (res < 0) ? ~0U : chip_addx;
+	spec->curr_chip_addx = (res < 0) ? ~0UL : chip_addx;
 
 	return res;
 }
@@ -886,7 +886,7 @@ static int chipio_write_data(struct hda_codec *codec, unsigned int data)
 	/*If no error encountered, automatically increment the address
 	as per chip behaviour*/
 	spec->curr_chip_addx = (res != -EIO) ?
-					(spec->curr_chip_addx + 4) : ~0U;
+					(spec->curr_chip_addx + 4) : ~0UL;
 	return res;
 }
 
@@ -937,7 +937,7 @@ static int chipio_read_data(struct hda_codec *codec, unsigned int *data)
 	/*If no error encountered, automatically increment the address
 	as per chip behaviour*/
 	spec->curr_chip_addx = (res != -EIO) ?
-					(spec->curr_chip_addx + 4) : ~0U;
+					(spec->curr_chip_addx + 4) : ~0UL;
 	return res;
 }
 
@@ -1172,7 +1172,7 @@ static int dspio_write_multiple(struct hda_codec *codec,
 	int status = 0;
 	unsigned int count;
 
-	if (buffer == NULL)
+	if ((buffer == NULL))
 		return -EINVAL;
 
 	count = 0;
@@ -1214,7 +1214,7 @@ static int dspio_read_multiple(struct hda_codec *codec, unsigned int *buffer,
 	unsigned int skip_count;
 	unsigned int dummy;
 
-	if (buffer == NULL)
+	if ((buffer == NULL))
 		return -1;
 
 	count = 0;
@@ -2870,7 +2870,7 @@ static unsigned int ca0132_capture_pcm_delay(struct hda_pcm_stream *info,
 #define CA0132_CODEC_MUTE(xname, nid, dir) \
 	CA0132_CODEC_MUTE_MONO(xname, nid, 3, dir)
 
-/* The following are for tuning of products */
+/* The followings are for tuning of products */
 #ifdef ENABLE_TUNING_CONTROLS
 
 static unsigned int voice_focus_vals_lookup[] = {
@@ -4778,17 +4778,13 @@ static int patch_ca0132(struct hda_codec *codec)
 
 	err = ca0132_prepare_verbs(codec);
 	if (err < 0)
-		goto error;
+		return err;
 
 	err = snd_hda_parse_pin_def_config(codec, &spec->autocfg, NULL);
 	if (err < 0)
-		goto error;
+		return err;
 
 	return 0;
-
- error:
-	ca0132_free(codec);
-	return err;
 }
 
 /*

@@ -93,7 +93,7 @@ static int autofs4_show_options(struct seq_file *m, struct dentry *root)
 		seq_printf(m, ",indirect");
 #ifdef CONFIG_CHECKPOINT_RESTORE
 	if (sbi->pipe)
-		seq_printf(m, ",pipe_ino=%ld", file_inode(sbi->pipe)->i_ino);
+		seq_printf(m, ",pipe_ino=%ld", sbi->pipe->f_inode->i_ino);
 	else
 		seq_printf(m, ",pipe_ino=-1");
 #endif
@@ -259,10 +259,8 @@ int autofs4_fill_super(struct super_block *s, void *data, int silent)
 	}
 	root_inode = autofs4_get_inode(s, S_IFDIR | 0755);
 	root = d_make_root(root_inode);
-	if (!root) {
-		ret = -ENOMEM;
+	if (!root)
 		goto fail_ino;
-	}
 	pipe = NULL;
 
 	root->d_fsdata = ino;

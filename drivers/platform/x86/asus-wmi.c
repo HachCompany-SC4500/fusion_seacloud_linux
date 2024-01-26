@@ -279,10 +279,12 @@ static int asus_wmi_input_init(struct asus_wmi *asus)
 
 	err = input_register_device(asus->inputdev);
 	if (err)
-		goto err_free_dev;
+		goto err_free_keymap;
 
 	return 0;
 
+err_free_keymap:
+	sparse_keymap_free(asus->inputdev);
 err_free_dev:
 	input_free_device(asus->inputdev);
 	return err;
@@ -290,8 +292,10 @@ err_free_dev:
 
 static void asus_wmi_input_exit(struct asus_wmi *asus)
 {
-	if (asus->inputdev)
+	if (asus->inputdev) {
+		sparse_keymap_free(asus->inputdev);
 		input_unregister_device(asus->inputdev);
+	}
 
 	asus->inputdev = NULL;
 }
@@ -309,7 +313,7 @@ static int asus_wmi_evaluate_method(u32 method_id, u32 arg0, u32 arg1,
 	union acpi_object *obj;
 	u32 tmp = 0;
 
-	status = wmi_evaluate_method(ASUS_WMI_MGMT_GUID, 0, method_id,
+	status = wmi_evaluate_method(ASUS_WMI_MGMT_GUID, 1, method_id,
 				     &input, &output);
 
 	if (ACPI_FAILURE(status))
@@ -1446,7 +1450,7 @@ static umode_t asus_hwmon_sysfs_is_visible(struct kobject *kobj,
 	return ok ? attr->mode : 0;
 }
 
-static const struct attribute_group hwmon_attribute_group = {
+static struct attribute_group hwmon_attribute_group = {
 	.is_visible = asus_hwmon_sysfs_is_visible,
 	.attrs = hwmon_attributes
 };
@@ -1779,7 +1783,7 @@ ASUS_WMI_CREATE_DEVICE_ATTR(cardr, 0644, ASUS_WMI_DEVID_CARDREADER);
 ASUS_WMI_CREATE_DEVICE_ATTR(lid_resume, 0644, ASUS_WMI_DEVID_LID_RESUME);
 ASUS_WMI_CREATE_DEVICE_ATTR(als_enable, 0644, ASUS_WMI_DEVID_ALS_ENABLE);
 
-static ssize_t cpufv_store(struct device *dev, struct device_attribute *attr,
+static ssize_t store_cpufv(struct device *dev, struct device_attribute *attr,
 			   const char *buf, size_t count)
 {
 	int value, rv;
@@ -1796,7 +1800,7 @@ static ssize_t cpufv_store(struct device *dev, struct device_attribute *attr,
 	return count;
 }
 
-static DEVICE_ATTR_WO(cpufv);
+static DEVICE_ATTR(cpufv, S_IRUGO | S_IWUSR, NULL, store_cpufv);
 
 static struct attribute *platform_attributes[] = {
 	&dev_attr_cpufv.attr,
@@ -1834,7 +1838,7 @@ static umode_t asus_sysfs_is_visible(struct kobject *kobj,
 	return ok ? attr->mode : 0;
 }
 
-static const struct attribute_group platform_attribute_group = {
+static struct attribute_group platform_attribute_group = {
 	.is_visible = asus_sysfs_is_visible,
 	.attrs = platform_attributes
 };
@@ -1959,7 +1963,7 @@ static int show_call(struct seq_file *m, void *data)
 	acpi_status status;
 
 	status = wmi_evaluate_method(ASUS_WMI_MGMT_GUID,
-				     0, asus->debug.method_id,
+				     1, asus->debug.method_id,
 				     &input, &output);
 
 	if (ACPI_FAILURE(status))
@@ -2119,7 +2123,10 @@ static int asus_wmi_add(struct platform_device *pdev)
 	if (result & (ASUS_WMI_DSTS_PRESENCE_BIT | ASUS_WMI_DSTS_USER_BIT))
 		asus->driver->wlan_ctrl_by_user = 1;
 
-	if (!(asus->driver->wlan_ctrl_by_user && ashs_present())) {
+	if (asus->driver->wlan_ctrl_by_user && ashs_present())
+		asus->driver->quirks->no_rfkill = 1;
+
+	if (!asus->driver->quirks->no_rfkill) {
 		err = asus_wmi_rfkill_init(asus);
 		if (err)
 			goto fail_rfkill;
@@ -2147,8 +2154,7 @@ static int asus_wmi_add(struct platform_device *pdev)
 		err = asus_wmi_backlight_init(asus);
 		if (err && err != -ENODEV)
 			goto fail_backlight;
-	} else
-		err = asus_wmi_set_devstate(ASUS_WMI_DEVID_BACKLIGHT, 2, NULL);
+	}
 
 	status = wmi_install_notify_handler(asus->driver->event_guid,
 					    asus_wmi_notify, asus);

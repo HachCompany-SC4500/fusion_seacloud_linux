@@ -845,7 +845,7 @@ static int fsl_spdif_set_dai_sysclk(struct snd_soc_dai *cpu_dai,
 	return 0;
 }
 
-static const struct snd_soc_dai_ops fsl_spdif_dai_ops = {
+static struct snd_soc_dai_ops fsl_spdif_dai_ops = {
 	.startup = fsl_spdif_startup,
 	.set_sysclk = fsl_spdif_set_dai_sysclk,
 	.hw_params = fsl_spdif_hw_params,

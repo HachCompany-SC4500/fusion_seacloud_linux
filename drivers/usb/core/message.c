@@ -1,8 +1,5 @@
 /*
  * message.c - synchronous message handling
- *
- * Released under the GPLv2 only.
- * SPDX-License-Identifier: GPL-2.0
  */
 
 #include <linux/pci.h>	/* for scatterlist macros */
@@ -122,11 +119,12 @@ static int usb_internal_control_msg(struct usb_device *usb_dev,
  * This function sends a simple control message to a specified endpoint and
  * waits for the message to complete, or timeout.
  *
- * Don't use this function from within an interrupt context. If you need
- * an asynchronous message, or need to send a message from within interrupt
- * context, use usb_submit_urb(). If a thread in your driver uses this call,
- * make sure your disconnect() method can wait for it to complete. Since you
- * don't have a handle on the URB used, you can't cancel the request.
+ * Don't use this function from within an interrupt context, like a bottom half
+ * handler.  If you need an asynchronous message, or need to send a message
+ * from within interrupt context, use usb_submit_urb().
+ * If a thread in your driver uses this call, make sure your disconnect()
+ * method can wait for it to complete.  Since you don't have a handle on the
+ * URB used, you can't cancel the request.
  *
  * Return: If successful, the number of bytes transferred. Otherwise, a negative
  * error number.
@@ -176,11 +174,12 @@ EXPORT_SYMBOL_GPL(usb_control_msg);
  * This function sends a simple interrupt message to a specified endpoint and
  * waits for the message to complete, or timeout.
  *
- * Don't use this function from within an interrupt context. If you need
- * an asynchronous message, or need to send a message from within interrupt
- * context, use usb_submit_urb() If a thread in your driver uses this call,
- * make sure your disconnect() method can wait for it to complete. Since you
- * don't have a handle on the URB used, you can't cancel the request.
+ * Don't use this function from within an interrupt context, like a bottom half
+ * handler.  If you need an asynchronous message, or need to send a message
+ * from within interrupt context, use usb_submit_urb() If a thread in your
+ * driver uses this call, make sure your disconnect() method can wait for it to
+ * complete.  Since you don't have a handle on the URB used, you can't cancel
+ * the request.
  *
  * Return:
  * If successful, 0. Otherwise a negative error number. The number of actual
@@ -209,11 +208,12 @@ EXPORT_SYMBOL_GPL(usb_interrupt_msg);
  * This function sends a simple bulk message to a specified endpoint
  * and waits for the message to complete, or timeout.
  *
- * Don't use this function from within an interrupt context. If you need
- * an asynchronous message, or need to send a message from within interrupt
- * context, use usb_submit_urb() If a thread in your driver uses this call,
- * make sure your disconnect() method can wait for it to complete. Since you
- * don't have a handle on the URB used, you can't cancel the request.
+ * Don't use this function from within an interrupt context, like a bottom half
+ * handler.  If you need an asynchronous message, or need to send a message
+ * from within interrupt context, use usb_submit_urb() If a thread in your
+ * driver uses this call, make sure your disconnect() method can wait for it to
+ * complete.  Since you don't have a handle on the URB used, you can't cancel
+ * the request.
  *
  * Because there is no usb_interrupt_msg() and no USBDEVFS_INTERRUPT ioctl,
  * users are forced to abuse this routine by using it to submit URBs for
@@ -478,7 +478,6 @@ EXPORT_SYMBOL_GPL(usb_sg_init);
  * significantly improve USB throughput.
  *
  * There are three kinds of completion for this function.
- *
  * (1) success, where io->status is zero.  The number of io->bytes
  *     transferred is as requested.
  * (2) error, where io->status is a negative errno value.  The number
@@ -818,11 +817,9 @@ int usb_string(struct usb_device *dev, int index, char *buf, size_t size)
 
 	if (dev->state == USB_STATE_SUSPENDED)
 		return -EHOSTUNREACH;
-	if (size <= 0 || !buf)
+	if (size <= 0 || !buf || !index)
 		return -EINVAL;
 	buf[0] = 0;
-	if (index <= 0 || index >= 256)
-		return -EINVAL;
 	tbuf = kmalloc(256, GFP_NOIO);
 	if (!tbuf)
 		return -ENOMEM;
@@ -1184,7 +1181,8 @@ void usb_disable_device(struct usb_device *dev, int skip_ep0)
 			dev->actconfig->interface[i] = NULL;
 		}
 
-		usb_disable_usb2_hardware_lpm(dev);
+		if (dev->usb2_hw_lpm_enabled == 1)
+			usb_set_usb2_hardware_lpm(dev, 0);
 		usb_unlocked_disable_lpm(dev);
 		usb_disable_ltm(dev);
 

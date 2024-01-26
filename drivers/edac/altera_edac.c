@@ -35,9 +35,11 @@
 #include <linux/uaccess.h>
 
 #include "altera_edac.h"
+#include "edac_core.h"
 #include "edac_module.h"
 
 #define EDAC_MOD_STR		"altera_edac"
+#define EDAC_VERSION		"1"
 #define EDAC_DEVICE		"Altera"
 
 static const struct altr_sdram_prv_data c5_data = {
@@ -151,17 +153,13 @@ static ssize_t altr_sdr_mc_err_inject_write(struct file *file,
 	if (count == 3) {
 		edac_printk(KERN_ALERT, EDAC_MC,
 			    "Inject Double bit error\n");
-		local_irq_disable();
 		regmap_write(drvdata->mc_vbase, priv->ce_ue_trgr_offset,
 			     (read_reg | priv->ue_set_mask));
-		local_irq_enable();
 	} else {
 		edac_printk(KERN_ALERT, EDAC_MC,
 			    "Inject Single bit error\n");
-		local_irq_disable();
 		regmap_write(drvdata->mc_vbase,	priv->ce_ue_trgr_offset,
 			     (read_reg | priv->ce_set_mask));
-		local_irq_enable();
 	}
 
 	ptemp[0] = 0x5A5A5A5A;
@@ -213,16 +211,24 @@ static void altr_sdr_mc_create_debugfs_nodes(struct mem_ctl_info *mci)
 static unsigned long get_total_mem(void)
 {
 	struct device_node *np = NULL;
-	struct resource res;
-	int ret;
-	unsigned long total_mem = 0;
+	const unsigned int *reg, *reg_end;
+	int len, sw, aw;
+	unsigned long start, size, total_mem = 0;
 
 	for_each_node_by_type(np, "memory") {
-		ret = of_address_to_resource(np, 0, &res);
-		if (ret)
-			continue;
+		aw = of_n_addr_cells(np);
+		sw = of_n_size_cells(np);
+		reg = (const unsigned int *)of_get_property(np, "reg", &len);
+		reg_end = reg + (len / sizeof(u32));
 
-		total_mem += resource_size(&res);
+		total_mem = 0;
+		do {
+			start = of_read_number(reg, aw);
+			reg += aw;
+			size = of_read_number(reg, sw);
+			reg += sw;
+			total_mem += size;
+		} while (reg < reg_end);
 	}
 	edac_dbg(0, "total_mem 0x%lx\n", total_mem);
 	return total_mem;
@@ -391,6 +397,7 @@ static int altr_sdram_probe(struct platform_device *pdev)
 	mci->edac_ctl_cap = EDAC_FLAG_NONE | EDAC_FLAG_SECDED;
 	mci->edac_cap = EDAC_FLAG_SECDED;
 	mci->mod_name = EDAC_MOD_STR;
+	mci->mod_ver = EDAC_VERSION;
 	mci->ctl_name = dev_name(&pdev->dev);
 	mci->scrub_mode = SCRUB_SW_SRC;
 	mci->dev_name = dev_name(&pdev->dev);
@@ -747,10 +754,8 @@ static int altr_edac_device_probe(struct platform_device *pdev)
 	drvdata->edac_dev_name = ecc_name;
 
 	drvdata->base = devm_ioremap(&pdev->dev, r->start, resource_size(r));
-	if (!drvdata->base) {
-		res = -ENOMEM;
+	if (!drvdata->base)
 		goto fail1;
-	}
 
 	/* Get driver specific data for this EDAC device */
 	drvdata->data = of_match_node(altr_edac_device_of_match, np)->data;
@@ -1831,7 +1836,7 @@ static int a10_eccmgr_irqdomain_map(struct irq_domain *d, unsigned int irq,
 	return 0;
 }
 
-static const struct irq_domain_ops a10_eccmgr_ic_ops = {
+static struct irq_domain_ops a10_eccmgr_ic_ops = {
 	.map = a10_eccmgr_irqdomain_map,
 	.xlate = irq_domain_xlate_twocell,
 };

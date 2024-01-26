@@ -44,10 +44,6 @@ struct virtio_vsock {
 	spinlock_t send_pkt_list_lock;
 	struct list_head send_pkt_list;
 
-	struct work_struct loopback_work;
-	spinlock_t loopback_list_lock; /* protects loopback_list */
-	struct list_head loopback_list;
-
 	atomic_t queued_replies;
 
 	/* The following fields are protected by rx_lock.  vqs[VSOCK_VQ_RX]
@@ -75,46 +71,7 @@ static u32 virtio_transport_get_local_cid(void)
 {
 	struct virtio_vsock *vsock = virtio_vsock_get();
 
-	if (!vsock)
-		return VMADDR_CID_ANY;
-
 	return vsock->guest_cid;
-}
-
-static void virtio_transport_loopback_work(struct work_struct *work)
-{
-	struct virtio_vsock *vsock =
-		container_of(work, struct virtio_vsock, loopback_work);
-	LIST_HEAD(pkts);
-
-	spin_lock_bh(&vsock->loopback_list_lock);
-	list_splice_init(&vsock->loopback_list, &pkts);
-	spin_unlock_bh(&vsock->loopback_list_lock);
-
-	mutex_lock(&vsock->rx_lock);
-	while (!list_empty(&pkts)) {
-		struct virtio_vsock_pkt *pkt;
-
-		pkt = list_first_entry(&pkts, struct virtio_vsock_pkt, list);
-		list_del_init(&pkt->list);
-
-		virtio_transport_recv_pkt(pkt);
-	}
-	mutex_unlock(&vsock->rx_lock);
-}
-
-static int virtio_transport_send_pkt_loopback(struct virtio_vsock *vsock,
-					      struct virtio_vsock_pkt *pkt)
-{
-	int len = pkt->len;
-
-	spin_lock_bh(&vsock->loopback_list_lock);
-	list_add_tail(&pkt->list, &vsock->loopback_list);
-	spin_unlock_bh(&vsock->loopback_list_lock);
-
-	queue_work(virtio_vsock_workqueue, &vsock->loopback_work);
-
-	return len;
 }
 
 static void
@@ -146,8 +103,6 @@ virtio_transport_send_pkt_work(struct work_struct *work)
 				       struct virtio_vsock_pkt, list);
 		list_del_init(&pkt->list);
 		spin_unlock_bh(&vsock->send_pkt_list_lock);
-
-		virtio_transport_deliver_tap_pkt(pkt);
 
 		reply = pkt->reply;
 
@@ -204,9 +159,6 @@ virtio_transport_send_pkt(struct virtio_vsock_pkt *pkt)
 		return -ENODEV;
 	}
 
-	if (le64_to_cpu(pkt->hdr.dst_cid) == vsock->guest_cid)
-		return virtio_transport_send_pkt_loopback(vsock, pkt);
-
 	if (pkt->reply)
 		atomic_inc(&vsock->queued_replies);
 
@@ -216,47 +168,6 @@ virtio_transport_send_pkt(struct virtio_vsock_pkt *pkt)
 
 	queue_work(virtio_vsock_workqueue, &vsock->send_pkt_work);
 	return len;
-}
-
-static int
-virtio_transport_cancel_pkt(struct vsock_sock *vsk)
-{
-	struct virtio_vsock *vsock;
-	struct virtio_vsock_pkt *pkt, *n;
-	int cnt = 0;
-	LIST_HEAD(freeme);
-
-	vsock = virtio_vsock_get();
-	if (!vsock) {
-		return -ENODEV;
-	}
-
-	spin_lock_bh(&vsock->send_pkt_list_lock);
-	list_for_each_entry_safe(pkt, n, &vsock->send_pkt_list, list) {
-		if (pkt->vsk != vsk)
-			continue;
-		list_move(&pkt->list, &freeme);
-	}
-	spin_unlock_bh(&vsock->send_pkt_list_lock);
-
-	list_for_each_entry_safe(pkt, n, &freeme, list) {
-		if (pkt->reply)
-			cnt++;
-		list_del(&pkt->list);
-		virtio_transport_free_pkt(pkt);
-	}
-
-	if (cnt) {
-		struct virtqueue *rx_vq = vsock->vqs[VSOCK_VQ_RX];
-		int new_cnt;
-
-		new_cnt = atomic_sub_return(cnt, &vsock->queued_replies);
-		if (new_cnt + cnt >= virtqueue_get_vring_size(rx_vq) &&
-		    new_cnt < virtqueue_get_vring_size(rx_vq))
-			queue_work(virtio_vsock_workqueue, &vsock->rx_work);
-	}
-
-	return 0;
 }
 
 static void virtio_vsock_rx_fill(struct virtio_vsock *vsock)
@@ -375,7 +286,6 @@ static void virtio_transport_rx_work(struct work_struct *work)
 			}
 
 			pkt->len = len - sizeof(pkt->hdr);
-			virtio_transport_deliver_tap_pkt(pkt);
 			virtio_transport_recv_pkt(pkt);
 		}
 	} while (!virtqueue_enable_cb(vq));
@@ -426,7 +336,7 @@ static void virtio_vsock_reset_sock(struct sock *sk)
 static void virtio_vsock_update_guest_cid(struct virtio_vsock *vsock)
 {
 	struct virtio_device *vdev = vsock->vdev;
-	__le64 guest_cid;
+	u64 guest_cid;
 
 	vdev->config->get(vdev, offsetof(struct virtio_vsock_config, guest_cid),
 			  &guest_cid, sizeof(guest_cid));
@@ -509,7 +419,6 @@ static struct virtio_transport virtio_transport = {
 		.release                  = virtio_transport_release,
 		.connect                  = virtio_transport_connect,
 		.shutdown                 = virtio_transport_shutdown,
-		.cancel_pkt               = virtio_transport_cancel_pkt,
 
 		.dgram_bind               = virtio_transport_dgram_bind,
 		.dgram_dequeue            = virtio_transport_dgram_dequeue,
@@ -579,13 +488,16 @@ static int virtio_vsock_probe(struct virtio_device *vdev)
 
 	vsock->vdev = vdev;
 
-	ret = virtio_find_vqs(vsock->vdev, VSOCK_VQ_MAX,
-			      vsock->vqs, callbacks, names,
-			      NULL);
+	ret = vsock->vdev->config->find_vqs(vsock->vdev, VSOCK_VQ_MAX,
+					    vsock->vqs, callbacks, names);
 	if (ret < 0)
 		goto out;
 
 	virtio_vsock_update_guest_cid(vsock);
+
+	ret = vsock_core_init(&virtio_transport.transport);
+	if (ret < 0)
+		goto out_vqs;
 
 	vsock->rx_buf_nr = 0;
 	vsock->rx_buf_max_nr = 0;
@@ -598,13 +510,10 @@ static int virtio_vsock_probe(struct virtio_device *vdev)
 	mutex_init(&vsock->event_lock);
 	spin_lock_init(&vsock->send_pkt_list_lock);
 	INIT_LIST_HEAD(&vsock->send_pkt_list);
-	spin_lock_init(&vsock->loopback_list_lock);
-	INIT_LIST_HEAD(&vsock->loopback_list);
 	INIT_WORK(&vsock->rx_work, virtio_transport_rx_work);
 	INIT_WORK(&vsock->tx_work, virtio_transport_tx_work);
 	INIT_WORK(&vsock->event_work, virtio_transport_event_work);
 	INIT_WORK(&vsock->send_pkt_work, virtio_transport_send_pkt_work);
-	INIT_WORK(&vsock->loopback_work, virtio_transport_loopback_work);
 
 	mutex_lock(&vsock->rx_lock);
 	virtio_vsock_rx_fill(vsock);
@@ -617,6 +526,8 @@ static int virtio_vsock_probe(struct virtio_device *vdev)
 	mutex_unlock(&the_virtio_vsock_mutex);
 	return 0;
 
+out_vqs:
+	vsock->vdev->config->del_vqs(vsock->vdev);
 out:
 	kfree(vsock);
 	mutex_unlock(&the_virtio_vsock_mutex);
@@ -628,14 +539,10 @@ static void virtio_vsock_remove(struct virtio_device *vdev)
 	struct virtio_vsock *vsock = vdev->priv;
 	struct virtio_vsock_pkt *pkt;
 
-	flush_work(&vsock->loopback_work);
 	flush_work(&vsock->rx_work);
 	flush_work(&vsock->tx_work);
 	flush_work(&vsock->event_work);
 	flush_work(&vsock->send_pkt_work);
-
-	/* Reset all connected sockets when the device disappear */
-	vsock_for_each_connected_socket(virtio_vsock_reset_sock);
 
 	vdev->config->reset(vdev);
 
@@ -658,17 +565,9 @@ static void virtio_vsock_remove(struct virtio_device *vdev)
 	}
 	spin_unlock_bh(&vsock->send_pkt_list_lock);
 
-	spin_lock_bh(&vsock->loopback_list_lock);
-	while (!list_empty(&vsock->loopback_list)) {
-		pkt = list_first_entry(&vsock->loopback_list,
-				       struct virtio_vsock_pkt, list);
-		list_del(&pkt->list);
-		virtio_transport_free_pkt(pkt);
-	}
-	spin_unlock_bh(&vsock->loopback_list_lock);
-
 	mutex_lock(&the_virtio_vsock_mutex);
 	the_virtio_vsock = NULL;
+	vsock_core_exit();
 	mutex_unlock(&the_virtio_vsock_mutex);
 
 	vdev->config->del_vqs(vdev);
@@ -701,28 +600,14 @@ static int __init virtio_vsock_init(void)
 	virtio_vsock_workqueue = alloc_workqueue("virtio_vsock", 0, 0);
 	if (!virtio_vsock_workqueue)
 		return -ENOMEM;
-
 	ret = register_virtio_driver(&virtio_vsock_driver);
 	if (ret)
-		goto out_wq;
-
-	ret = vsock_core_init(&virtio_transport.transport);
-	if (ret)
-		goto out_vdr;
-
-	return 0;
-
-out_vdr:
-	unregister_virtio_driver(&virtio_vsock_driver);
-out_wq:
-	destroy_workqueue(virtio_vsock_workqueue);
+		destroy_workqueue(virtio_vsock_workqueue);
 	return ret;
-
 }
 
 static void __exit virtio_vsock_exit(void)
 {
-	vsock_core_exit();
 	unregister_virtio_driver(&virtio_vsock_driver);
 	destroy_workqueue(virtio_vsock_workqueue);
 }

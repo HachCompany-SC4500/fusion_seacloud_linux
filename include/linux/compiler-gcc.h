@@ -1,5 +1,4 @@
-/* SPDX-License-Identifier: GPL-2.0 */
-#ifndef __LINUX_COMPILER_TYPES_H
+#ifndef __LINUX_COMPILER_H
 #error "Please don't include <linux/compiler-gcc.h> directly, include <linux/compiler.h> instead."
 #endif
 
@@ -22,7 +21,7 @@
  * clobbered. The issue is as follows: while the inline asm might
  * access any memory it wants, the compiler could have fit all of
  * @ptr into memory registers instead, and since @ptr never escaped
- * from that, it proved that the inline asm wasn't touching any of
+ * from that, it proofed that the inline asm wasn't touching any of
  * it. This version works well with both compilers, i.e. we're telling
  * the compiler that the inline asm absolutely may see the contents
  * of @ptr. See also: https://llvm.org/bugs/show_bug.cgi?id=15495
@@ -108,7 +107,7 @@
 #define __weak		__attribute__((weak))
 #define __alias(symbol)	__attribute__((alias(#symbol)))
 
-#ifdef CONFIG_RETPOLINE
+#ifdef RETPOLINE
 #define __noretpoline __attribute__((indirect_branch("keep")))
 #endif
 
@@ -140,13 +139,11 @@
  */
 #define __pure			__attribute__((pure))
 #define __aligned(x)		__attribute__((aligned(x)))
-#define __aligned_largest	__attribute__((aligned))
 #define __printf(a, b)		__attribute__((format(printf, a, b)))
 #define __scanf(a, b)		__attribute__((format(scanf, a, b)))
 #define __attribute_const__	__attribute__((__const__))
 #define __maybe_unused		__attribute__((unused))
 #define __always_unused		__attribute__((unused))
-#define __mode(x)               __attribute__((mode(x)))
 
 /* gcc version specific checks */
 
@@ -215,7 +212,6 @@
 
 #if GCC_VERSION >= 40400
 #define __optimize(level)	__attribute__((__optimize__(level)))
-#define __nostackprotector	__optimize("no-stack-protector")
 #endif /* GCC_VERSION >= 40400 */
 
 #if GCC_VERSION >= 40500
@@ -226,14 +222,16 @@
 #endif
 #endif
 
-/*
- * calling noreturn functions, __builtin_unreachable() and __builtin_trap()
- * confuse the stack allocation in gcc, leading to overly large stack
- * frames, see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=82365
- *
- * Adding an empty inline assembly before it works around the problem
- */
-#define barrier_before_unreachable() asm volatile("")
+#ifdef CONFIG_STACK_VALIDATION
+#define annotate_unreachable() ({					\
+	asm("1:\t\n"							\
+	    ".pushsection .discard.unreachable\t\n"			\
+	    ".long 1b\t\n"						\
+	    ".popsection\t\n");						\
+})
+#else
+#define annotate_unreachable()
+#endif
 
 /*
  * Mark a position in code as unreachable.  This can be used to
@@ -245,27 +243,14 @@
  * unreleased.  Really, we need to have autoconf for the kernel.
  */
 #define unreachable() \
-	do {					\
-		annotate_unreachable();		\
-		barrier_before_unreachable();	\
-		__builtin_unreachable();	\
-	} while (0)
+	do { annotate_unreachable(); __builtin_unreachable(); } while (0)
 
 /* Mark a function definition as prohibited from being cloned. */
 #define __noclone	__attribute__((__noclone__, __optimize__("no-tracer")))
 
-#ifdef RANDSTRUCT_PLUGIN
-#define __randomize_layout __attribute__((randomize_layout))
-#define __no_randomize_layout __attribute__((no_randomize_layout))
-/* This anon struct can add padding, so only enable it under randstruct. */
-#define randomized_struct_fields_start	struct {
-#define randomized_struct_fields_end	} __randomize_layout;
-#endif
-
 #endif /* GCC_VERSION >= 40500 */
 
 #if GCC_VERSION >= 40600
-
 /*
  * When used with Link Time Optimization, gcc can optimize away C functions or
  * variables which are referenced only from assembly code.  __visible tells the
@@ -273,8 +258,7 @@
  * this.
  */
 #define __visible	__attribute__((externally_visible))
-
-#endif /* GCC_VERSION >= 40600 */
+#endif
 
 
 #if GCC_VERSION >= 40900 && !defined(__CHECKER__)
@@ -335,18 +319,6 @@
 #define __no_sanitize_address __attribute__((no_sanitize_address))
 #endif
 
-#if GCC_VERSION >= 50100
-/*
- * Mark structures as requiring designated initializers.
- * https://gcc.gnu.org/onlinedocs/gcc/Designated-Inits.html
- */
-#define __designated_init __attribute__((designated_init))
-#endif
-
-#if GCC_VERSION >= 90100
-#define __copy(symbol)                 __attribute__((__copy__(symbol)))
-#endif
-
 #endif	/* gcc version >= 40000 specific checks */
 
 #if !defined(__noclone)
@@ -362,7 +334,3 @@
  * code
  */
 #define uninitialized_var(x) x = x
-
-#if GCC_VERSION >= 50100
-#define COMPILER_HAS_GENERIC_BUILTIN_OVERFLOW 1
-#endif

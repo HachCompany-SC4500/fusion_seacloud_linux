@@ -55,7 +55,6 @@
 
 #include "gc_hal_kernel_linux.h"
 #include "gc_hal_kernel_allocator.h"
-#include <linux/scatterlist.h>
 
 #include <linux/slab.h>
 #include <linux/pagemap.h>
@@ -69,15 +68,6 @@ enum um_desc_type
     UM_PFN_MAP,
 };
 
-#if LINUX_VERSION_CODE < KERNEL_VERSION (2,6,24)
-struct sg_table
-{
-    struct scatterlist *sgl;
-    unsigned int nents;
-    unsigned int orig_nents;
-};
-#endif
-
 /* Descriptor of a user memory imported. */
 struct um_desc
 {
@@ -89,11 +79,7 @@ struct um_desc
         unsigned long physical;
 
         /* UM_PAGE_MAP. */
-        struct
-        {
-            struct page **pages;
-            struct sg_table sgt;
-        };
+        struct page **pages;
 
         /* UM_PFN_MAP. */
         struct
@@ -106,7 +92,6 @@ struct um_desc
     /* contiguous chunks, does not include padding pages. */
     int chunk_count;
 
-    unsigned long vm_flags;
     unsigned long user_vaddr;
     size_t size;
     unsigned long offset;
@@ -124,7 +109,7 @@ static int import_physical_map(struct um_desc *um, unsigned long phys)
 }
 
 static int import_page_map(struct um_desc *um,
-                unsigned long addr, size_t page_count, size_t size)
+                unsigned long addr, size_t page_count)
 {
     int i;
     int result;
@@ -177,48 +162,10 @@ static int import_page_map(struct um_desc *um,
         }
     }
 
-#if LINUX_VERSION_CODE >= KERNEL_VERSION (3,6,0) \
-    && (defined(ARCH_HAS_SG_CHAIN) || defined(CONFIG_ARCH_HAS_SG_CHAIN))
-    result = sg_alloc_table_from_pages(&um->sgt, pages, page_count,
-                    addr & ~PAGE_MASK, size, GFP_KERNEL | gcdNOWARN);
-
-#else
-    result = alloc_sg_list_from_pages(&um->sgt.sgl, pages, page_count,
-                    addr & ~PAGE_MASK, size, &um->sgt.nents);
-
-    um->sgt.orig_nents = um->sgt.nents;
-#endif
-    if (unlikely(result < 0))
-    {
-        printk("[galcore]: %s: sg_alloc_table_from_pages failed\n", __FUNCTION__);
-        goto error;
-    }
-
-    result = dma_map_sg(galcore_device, um->sgt.sgl, um->sgt.nents, DMA_TO_DEVICE);
-    if (unlikely(result != um->sgt.nents))
-    {
-        printk("[galcore]: %s: dma_map_sg failed\n", __FUNCTION__);
-        goto error;
-    }
-
     um->type = UM_PAGE_MAP;
     um->pages = pages;
 
     return 0;
-
-error:
-#if LINUX_VERSION_CODE >= KERNEL_VERSION (3,6,0) \
-    && (defined(ARCH_HAS_SG_CHAIN) || defined(CONFIG_ARCH_HAS_SG_CHAIN))
-    sg_free_table(&um->sgt);
-#else
-    kfree(um->sgt.sgl);
-#endif
-
-    if (pages)
-    {
-        kfree(pages);
-    }
-    return result;
 }
 
 
@@ -336,8 +283,7 @@ _Import(
     )
 {
     gceSTATUS status = gcvSTATUS_OK;
-    unsigned long vm_flags = 0;
-    struct vm_area_struct *vma = NULL;
+    int pfn_map = 0;
     unsigned long start, end, memory;
     int result = 0;
 
@@ -381,24 +327,17 @@ _Import(
 
     if (memory)
     {
+        struct vm_area_struct *vma = NULL;
         unsigned long vaddr = memory;
 
         for (i = 0; i < pageCount; i++)
         {
             u32 data;
-
-            get_user(data, (u32 *)vaddr);
-            put_user(data, (u32 *)vaddr);
-            vaddr += PAGE_SIZE;
-
-            /* Fix QM crash with test_buffers */
-            if (vaddr > memory + Size - 4)
-            {
-                vaddr = memory + Size - 4;
-            }
+            get_user(data, (u32 *)((memory & PAGE_MASK) + PAGE_SIZE * i));
+            put_user(data, (u32 *)((memory & PAGE_MASK) + PAGE_SIZE * i));
         }
 
-        vma = find_vma(current->mm, memory);
+        vma = find_vma(current->mm, vaddr);
 
         if (!vma)
         {
@@ -406,12 +345,7 @@ _Import(
             gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
         }
 
-#ifdef CONFIG_ARM
-        /* coherent cache in case vivt or vipt-aliasing cache. */
-        __cpuc_flush_user_range(memory, memory + Size, vma->vm_flags);
-#endif
-
-        vm_flags = vma->vm_flags;
+        pfn_map = !!(vma->vm_flags & VM_PFNMAP);
         vaddr = vma->vm_end;
 
         while (vaddr < memory + Size)
@@ -424,7 +358,7 @@ _Import(
                 gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
             }
 
-            if ((vma->vm_flags & VM_PFNMAP) != (vm_flags & VM_PFNMAP))
+            if (!!(vma->vm_flags & VM_PFNMAP) != pfn_map)
             {
                 /* Can not support different map type: both PFN and PAGE detected. */
                 gcmkONERROR(gcvSTATUS_NOT_SUPPORTED);
@@ -440,13 +374,13 @@ _Import(
     }
     else
     {
-        if (vm_flags & VM_PFNMAP)
+        if (pfn_map)
         {
             result = import_pfn_map(UserMemory, memory, pageCount);
         }
         else
         {
-            result = import_page_map(UserMemory, memory, pageCount, Size);
+            result = import_page_map(UserMemory, memory, pageCount);
         }
     }
 
@@ -463,48 +397,20 @@ _Import(
         gcmkONERROR(gcvSTATUS_OUT_OF_RESOURCES);
     }
 
-    if(Os->device->platform->flagBits & gcvPLATFORM_FLAG_LIMIT_4G_ADDRESS )
+    if (UserMemory->type == UM_PAGE_MAP)
     {
-        gctPHYS_ADDR_T addr;
+        for (i = 0; i < pageCount; i++)
+        {
+            gctUINT32 phys = page_to_phys(UserMemory->pages[i]);
 
-        if (Physical != gcvINVALID_PHYSICAL_ADDRESS)
-        {
-            if(Physical >0xFFFFFFFFu || Physical + Size > 0xFFFFFFFFu )
-            {
-                gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
-            }
-        }
-        else if (vm_flags & VM_PFNMAP)
-        {
-            for(i = 0; i < pageCount; i++)
-            {
-                addr =  UserMemory->pfns[i] << PAGE_SHIFT;
-                if( addr > 0xFFFFFFFFu)
-                {
-                    kfree(UserMemory->pfns);
-                    UserMemory->pfns = gcvNULL;
-                    kfree(UserMemory->refs) ;
-                    UserMemory->refs = gcvNULL;
-                    gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
-                }
-            }
-        }
-        else
-        {
-            for (i = 0; i< pageCount; i++)
-            {
-                addr = page_to_phys(UserMemory->pages[i]);
-                if(addr > 0xFFFFFFFFu )
-                {
-                    kfree(UserMemory->pages);
-                    UserMemory->pages = gcvNULL;
-                    gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
-                }
-            }
+            /* Flush(clean) the data cache. */
+            gckOS_CacheFlush(Os, _GetProcessID(), gcvNULL,
+                        phys,
+                        (gctPOINTER)(memory & PAGE_MASK) + i*PAGE_SIZE,
+                        PAGE_SIZE);
         }
     }
 
-    UserMemory->vm_flags = vm_flags;
     UserMemory->user_vaddr = (unsigned long)Memory;
     UserMemory->size  = Size;
     UserMemory->offset = (Physical != gcvINVALID_PHYSICAL_ADDRESS)
@@ -575,15 +481,6 @@ static void release_physical_map(struct um_desc *um)
 static void release_page_map(struct um_desc *um)
 {
     int i;
-
-    dma_unmap_sg(galcore_device, um->sgt.sgl, um->sgt.nents, DMA_TO_DEVICE);
-
-#if LINUX_VERSION_CODE >= KERNEL_VERSION (3,6,0) \
-    && (defined(ARCH_HAS_SG_CHAIN) || defined(CONFIG_ARCH_HAS_SG_CHAIN))
-    sg_free_table(&um->sgt);
-#else
-    kfree(um->sgt.sgl);
-#endif
 
     for (i = 0; i < um->pageCount; i++)
     {
@@ -660,14 +557,13 @@ static gceSTATUS
 _UserMemoryMapUser(
     IN gckALLOCATOR Allocator,
     IN PLINUX_MDL Mdl,
-    IN PLINUX_MDL_MAP MdlMap,
-    IN gctBOOL Cacheable
+    IN gctBOOL Cacheable,
+    OUT gctPOINTER * UserLogical
     )
 {
     struct um_desc *userMemory = Mdl->priv;
 
-    MdlMap->vmaAddr = (gctPOINTER)userMemory->user_vaddr;
-    MdlMap->cacheable = gcvTRUE;
+    *UserLogical = (gctPOINTER)userMemory->user_vaddr;
 
     return gcvSTATUS_OK;
 }
@@ -676,7 +572,7 @@ static void
 _UserMemoryUnmapUser(
     IN gckALLOCATOR Allocator,
     IN PLINUX_MDL Mdl,
-    IN PLINUX_MDL_MAP MdlMap,
+    IN gctPOINTER Logical,
     IN gctUINT32 Size
     )
 {
@@ -692,6 +588,7 @@ _UserMemoryMapKernel(
 {
     /* Kernel doesn't acess video memory. */
     return gcvSTATUS_NOT_SUPPORTED;
+
 }
 
 static gceSTATUS
@@ -709,48 +606,12 @@ static gceSTATUS
 _UserMemoryCache(
     IN gckALLOCATOR Allocator,
     IN PLINUX_MDL Mdl,
-    IN gctSIZE_T Offset,
     IN gctPOINTER Logical,
+    IN gctUINT32 Physical,
     IN gctUINT32 Bytes,
     IN gceCACHEOPERATION Operation
     )
 {
-    struct um_desc *um = Mdl->priv;
-    enum dma_data_direction dir;
-
-    if (um->type != UM_PAGE_MAP)
-    {
-        _MemoryBarrier();
-        return gcvSTATUS_OK;
-    }
-
-#ifdef CONFIG_ARM
-    /* coherent cache in case vivt or vipt-aliasing cache. */
-    __cpuc_flush_user_range(um->user_vaddr,
-                            um->user_vaddr + um->size, um->vm_flags);
-#endif
-
-    switch (Operation)
-    {
-    case gcvCACHE_CLEAN:
-        dir = DMA_TO_DEVICE;
-        dma_sync_sg_for_device(galcore_device, um->sgt.sgl, um->sgt.nents, dir);
-        break;
-    case gcvCACHE_FLUSH:
-        dir = DMA_TO_DEVICE;
-        dma_sync_sg_for_device(galcore_device, um->sgt.sgl, um->sgt.nents, dir);
-        dir = DMA_FROM_DEVICE;
-        dma_sync_sg_for_cpu(galcore_device, um->sgt.sgl, um->sgt.nents, dir);
-        break;
-    case gcvCACHE_INVALIDATE:
-        dir = DMA_FROM_DEVICE;
-        dma_sync_sg_for_cpu(galcore_device, um->sgt.sgl, um->sgt.nents, dir);
-        break;
-    default:
-        return gcvSTATUS_INVALID_ARGUMENT;
-    }
-
-
     return gcvSTATUS_OK;
 }
 

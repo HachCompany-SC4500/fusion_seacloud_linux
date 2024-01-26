@@ -29,13 +29,6 @@ struct imx_rpmsg_data {
 	struct snd_soc_card card;
 };
 
-static const struct snd_soc_dapm_widget imx_wm8960_dapm_widgets[] = {
-	SND_SOC_DAPM_HP("Headphone Jack", NULL),
-	SND_SOC_DAPM_SPK("Ext Spk", NULL),
-	SND_SOC_DAPM_MIC("Mic Jack", NULL),
-	SND_SOC_DAPM_MIC("Main MIC", NULL),
-};
-
 static int imx_rpmsg_probe(struct platform_device *pdev)
 {
 	struct device_node *cpu_np;
@@ -68,32 +61,20 @@ static int imx_rpmsg_probe(struct platform_device *pdev)
 
 	data->dai[0].name = "rpmsg hifi";
 	data->dai[0].stream_name = "rpmsg hifi";
-	data->dai[0].dai_fmt = SND_SOC_DAIFMT_I2S |
-			    SND_SOC_DAIFMT_NB_NF |
-			    SND_SOC_DAIFMT_CBM_CFM;
-
 	if (rpmsg_i2s->codec_wm8960) {
 		data->dai[0].codec_dai_name = "rpmsg-wm8960-hifi";
 		data->dai[0].codec_name = "rpmsg-audio-codec-wm8960";
-	}
-
-	if (rpmsg_i2s->codec_dummy) {
+	} else {
 		data->dai[0].codec_dai_name = "snd-soc-dummy-dai";
 		data->dai[0].codec_name = "snd-soc-dummy";
 	}
-
-	if (rpmsg_i2s->codec_ak4497) {
-		data->dai[0].codec_dai_name = "rpmsg-ak4497-aif";
-		data->dai[0].codec_name = "rpmsg-audio-codec-ak4497";
-		data->dai[0].dai_fmt = SND_SOC_DAIFMT_I2S |
-			    SND_SOC_DAIFMT_NB_NF |
-			    SND_SOC_DAIFMT_CBS_CFS;
-	}
-
 	data->dai[0].cpu_dai_name = dev_name(&cpu_pdev->dev);
 	data->dai[0].platform_of_node = cpu_np;
 	data->dai[0].playback_only = true;
 	data->dai[0].capture_only = true;
+	data->dai[0].dai_fmt = SND_SOC_DAIFMT_I2S |
+			    SND_SOC_DAIFMT_NB_NF |
+			    SND_SOC_DAIFMT_CBM_CFM;
 	data->card.num_links = 1;
 	data->card.dai_link = data->dai;
 
@@ -114,17 +95,6 @@ static int imx_rpmsg_probe(struct platform_device *pdev)
 	ret = snd_soc_of_parse_card_name(&data->card, "model");
 	if (ret)
 		goto fail;
-
-	if (rpmsg_i2s->codec_wm8960) {
-		ret = snd_soc_of_parse_audio_routing(&data->card,
-						"audio-routing");
-		if (ret)
-			goto fail;
-
-		data->card.dapm_widgets = imx_wm8960_dapm_widgets;
-		data->card.num_dapm_widgets =
-				ARRAY_SIZE(imx_wm8960_dapm_widgets);
-	}
 
 	platform_set_drvdata(pdev, &data->card);
 	snd_soc_card_set_drvdata(&data->card, data);

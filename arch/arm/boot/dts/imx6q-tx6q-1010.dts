@@ -78,4 +78,5 @@
 		pinctrl-0 = <&pinctrl_disp0_1>;
 		status = "okay";
 	};
+
 };

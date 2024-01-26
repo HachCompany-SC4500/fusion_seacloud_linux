@@ -257,7 +257,7 @@ out_unlock:
 	rcu_read_unlock();
 
 out:
-	skb_gro_flush_final(skb, pp, flush);
+	NAPI_GRO_CB(skb)->flush |= flush;
 
 	return pp;
 }

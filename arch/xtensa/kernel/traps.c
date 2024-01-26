@@ -24,9 +24,7 @@
  */
 
 #include <linux/kernel.h>
-#include <linux/sched/signal.h>
-#include <linux/sched/debug.h>
-#include <linux/sched/task_stack.h>
+#include <linux/sched.h>
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/stringify.h>
@@ -37,7 +35,7 @@
 #include <asm/stacktrace.h>
 #include <asm/ptrace.h>
 #include <asm/timex.h>
-#include <linux/uaccess.h>
+#include <asm/uaccess.h>
 #include <asm/pgtable.h>
 #include <asm/processor.h>
 #include <asm/traps.h>
@@ -483,8 +481,10 @@ void show_regs(struct pt_regs * regs)
 
 static int show_trace_cb(struct stackframe *frame, void *data)
 {
-	if (kernel_text_address(frame->pc))
-		pr_cont(" [<%08lx>] %pB\n", frame->pc, (void *)frame->pc);
+	if (kernel_text_address(frame->pc)) {
+		pr_cont(" [<%08lx>]", frame->pc);
+		print_symbol(" %s\n", frame->pc);
+	}
 	return 0;
 }
 

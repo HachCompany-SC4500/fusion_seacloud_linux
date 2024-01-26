@@ -1,44 +1,113 @@
-* Omnivision OV5640 MIPI CSI-2 sensor
+* Omnivision OV5640 image sensor
+
+The Omnivision OV5640 is a 1/4" color CMOS QSXGA 5 megapixel image sensor.
+All image processing functions are programmable through the SCCB interface
+or embedded microcontroller.
+The OV5640 supports both a digital video parallel port and a dual lane
+serial MIPI port.
+
+The OV5640 sensor supports multiple resolutions output, such as QSXGA, 1080p,
+720p, VGA, QVGA. It also can support YUV422/420, YCbCr422, RGB565/555/444,
+CCIR656 or raw RGB output formats.
+
 
 Required Properties:
-- compatible: should be "ovti,ov5640"
-- clocks: reference to the xclk input clock.
-- clock-names: should be "xclk".
-- DOVDD-supply: Digital I/O voltage supply, 1.8 volts
-- AVDD-supply: Analog voltage supply, 2.8 volts
-- DVDD-supply: Digital core voltage supply, 1.5 volts
+- compatible: should be "ovti,ov5640_mipi"
+- clocks: reference to the csi_mclk input clock.
+- clock-names: should be "csi_mclk".
+- reg: I2C slave address
+- csi-id: virtual channel for this sensor
+- mclk: used to calculate xvclk (sensor master input clock, xvclk = mclk /10000)
+
 
 Optional Properties:
-- reset-gpios: reference to the GPIO connected to the reset pin, if any.
-	       This is an active low signal to the OV5640.
-- powerdown-gpios: reference to the GPIO connected to the powerdown pin,
-		   if any. This is an active high signal to the OV5640.
+- rst-gpios: reference to the GPIO connected to the resetb pin, if any.
+- pwn-gpios: reference to the GPIO connected to the pwdn pin, if any.
 
 The device node must contain one 'port' child node for its digital output
 video port, in accordance with the video interface bindings defined in
 Documentation/devicetree/bindings/media/video-interfaces.txt.
 
-Example:
+Please note that the default I2C slave address is 0x3c.
+In case dual-camera is used, it might be necessary to change
+the I2C slave address for both cameras, and disable the reset pin,
+this is if the board has only one reset line for both cameras, for
+example imx-8mq-evk rev B3. Also, unique csi-id is needed for each
+camera. See the dual-camera example.
 
-&i2c1 {
-	ov5640: camera@3c {
-		compatible = "ovti,ov5640";
-		pinctrl-names = "default";
-		pinctrl-0 = <&pinctrl_ov5640>;
+
+Example for single camera:
+
+i2c1: i2c@30a20000 {
+	ov5640_mipi: ov5640_mipi@3c {
+		compatible = "ovti,ov5640_mipi";
 		reg = <0x3c>;
-		clocks = <&clks IMX6QDL_CLK_CKO>;
-		clock-names = "xclk";
-		DOVDD-supply = <&vgen4_reg>; /* 1.8v */
-		AVDD-supply = <&vgen3_reg>;  /* 2.8v */
-		DVDD-supply = <&vgen2_reg>;  /* 1.5v */
-		powerdown-gpios = <&gpio1 19 GPIO_ACTIVE_HIGH>;
-		reset-gpios = <&gpio1 20 GPIO_ACTIVE_LOW>;
-
+		status = "okay";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_csi1_pwn>, <&pinctrl_csi_rst>;
+		clocks = <&clk IMX8MQ_CLK_CLKO2_DIV>;
+		clock-names = "csi_mclk";
+		assigned-clocks = <&clk IMX8MQ_CLK_CLKO2_SRC>,
+				  <&clk IMX8MQ_CLK_CLKO2_DIV>;
+		assigned-clock-parents = <&clk IMX8MQ_SYS2_PLL_200M>;
+		assigned-clock-rates = <0>, <20000000>;
+		csi_id = <0>;
+		pwn-gpios = <&gpio1 3 GPIO_ACTIVE_HIGH>;
+		rst-gpios = <&gpio1 6 GPIO_ACTIVE_HIGH>;
+		mclk = <20000000>;
+		mclk_source = <0>;
 		port {
-			ov5640_to_mipi_csi2: endpoint {
-				remote-endpoint = <&mipi_csi2_from_ov5640>;
-				clock-lanes = <0>;
-				data-lanes = <1 2>;
+			ov5640_mipi1_ep: endpoint {
+				remote-endpoint = <&mipi1_sensor_ep>;
+			};
+		};
+	};
+
+
+Example for dual-camera:
+
+	ov5640_mipi: ov5640_mipi@1c {
+		compatible = "ovti,ov5640_mipi";
+		reg = <0x1c>;
+		status = "okay";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_csi1_pwn>, <&pinctrl_csi_rst>;
+		clocks = <&clk IMX8MQ_CLK_CLKO2_DIV>;
+		clock-names = "csi_mclk";
+		assigned-clocks = <&clk IMX8MQ_CLK_CLKO2_SRC>,
+				  <&clk IMX8MQ_CLK_CLKO2_DIV>;
+		assigned-clock-parents = <&clk IMX8MQ_SYS2_PLL_200M>;
+		assigned-clock-rates = <0>, <20000000>;
+		csi_id = <0>;
+		pwn-gpios = <&gpio1 3 GPIO_ACTIVE_HIGH>;
+		mclk = <20000000>;
+		mclk_source = <0>;
+		port {
+			ov5640_mipi1_ep: endpoint {
+				remote-endpoint = <&mipi1_sensor_ep>;
+			};
+		};
+	};
+
+	ov5640_mipi2: ov5640_mipi2@2c {
+		compatible = "ovti,ov5640_mipi";
+		reg = <0x2c>;
+		status = "okay";
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_csi2_pwn>;
+		clocks = <&clk IMX8MQ_CLK_CLKO2_DIV>;
+		clock-names = "csi_mclk";
+		assigned-clocks = <&clk IMX8MQ_CLK_CLKO2_SRC>,
+				  <&clk IMX8MQ_CLK_CLKO2_DIV>;
+		assigned-clock-parents = <&clk IMX8MQ_SYS2_PLL_200M>;
+		assigned-clock-rates = <0>, <20000000>;
+		csi_id = <1>;
+		pwn-gpios = <&gpio1 5 GPIO_ACTIVE_HIGH>;
+		mclk = <20000000>;
+		mclk_source = <0>;
+		port {
+			ov5640_mipi2_ep: endpoint {
+				remote-endpoint = <&mipi2_sensor_ep>;
 			};
 		};
 	};

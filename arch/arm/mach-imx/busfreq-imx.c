@@ -1,7 +1,6 @@
 /*
  * Copyright (C) 2011-2016 Freescale Semiconductor, Inc. All Rights Reserved.
  * Copyright 2017 NXP.
- * Copyright 2018 NXP.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -71,9 +70,6 @@ static u32 org_arm_rate;
 extern unsigned long iram_tlb_phys_addr;
 extern int unsigned long iram_tlb_base_addr;
 
-/*
- * Bus frequency management by Linux
- */
 extern int init_mmdc_lpddr2_settings(struct platform_device *dev);
 extern int init_mmdc_lpddr2_settings_mx6q(struct platform_device *dev);
 extern int init_mmdc_ddr3_settings_imx6_up(struct platform_device *dev);
@@ -83,23 +79,6 @@ extern int update_ddr_freq_imx_smp(int ddr_rate);
 extern int update_ddr_freq_imx6_up(int ddr_rate);
 extern int update_lpddr2_freq(int ddr_rate);
 extern int update_lpddr2_freq_smp(int ddr_rate);
-
-#ifdef CONFIG_OPTEE
-/*
- * Bus frequency management by OPTEE OS
- */
-extern int update_freq_optee(int ddr_rate);
-extern int init_freq_optee(struct platform_device *busfreq_pdev);
-#endif
-
-/**
- * @brief  Functions to init and update the busfreq function of
- *         device and memory type
- */
-static struct busfreq_func {
-	int (*init)(struct platform_device *dev);
-	int (*update)(int ddr_rate);
-} busfreq_func = {NULL, NULL};
 
 DEFINE_MUTEX(bus_freq_mutex);
 
@@ -272,10 +251,10 @@ static void enter_lpm_imx6_up(void)
 		/* Need to ensure that PLL2_PFD_400M is kept ON. */
 		clk_prepare_enable(pll2_400_clk);
 		if (ddr_type == IMX_DDR_TYPE_DDR3)
-			busfreq_func.update(LOW_AUDIO_CLK);
+			update_ddr_freq_imx6_up(LOW_AUDIO_CLK);
 		else if (ddr_type == IMX_DDR_TYPE_LPDDR2 ||
 			 ddr_type == IMX_MMDC_DDR_TYPE_LPDDR3)
-			busfreq_func.update(HIGH_AUDIO_CLK);
+			update_lpddr2_freq(HIGH_AUDIO_CLK);
 		clk_set_parent(periph2_clk2_sel_clk, pll3_clk);
 		clk_set_parent(periph2_pre_clk, pll2_400_clk);
 		clk_set_parent(periph2_clk, periph2_pre_clk);
@@ -303,8 +282,11 @@ static void enter_lpm_imx6_up(void)
 		low_bus_freq_mode = 0;
 		cur_bus_freq_mode = BUS_FREQ_AUDIO;
 	} else {
-		busfreq_func.update(LPAPM_CLK);
-
+		if (ddr_type == IMX_DDR_TYPE_DDR3)
+			update_ddr_freq_imx6_up(LPAPM_CLK);
+		else if (ddr_type == IMX_DDR_TYPE_LPDDR2 ||
+			 ddr_type == IMX_MMDC_DDR_TYPE_LPDDR3)
+			update_lpddr2_freq(LPAPM_CLK);
 		clk_set_parent(periph2_clk2_sel_clk, osc_clk);
 		clk_set_parent(periph2_clk, periph2_clk2_clk);
 
@@ -330,9 +312,9 @@ static void enter_lpm_imx6_smp(void)
 		/* Need to ensure that PLL2_PFD_400M is kept ON. */
 		clk_prepare_enable(pll2_400_clk);
 		if (ddr_type == MMDC_MDMISC_DDR_TYPE_DDR3)
-			busfreq_func.update(LOW_AUDIO_CLK);
+			update_ddr_freq_imx_smp(LOW_AUDIO_CLK);
 		else if (ddr_type == MMDC_MDMISC_DDR_TYPE_LPDDR2)
-			busfreq_func.update(HIGH_AUDIO_CLK);
+			update_lpddr2_freq_smp(HIGH_AUDIO_CLK);
 		/* Make sure periph clk's parent also got updated */
 		clk_set_parent(periph_clk2_sel_clk, pll3_clk);
 		if (ddr_type == MMDC_MDMISC_DDR_TYPE_DDR3)
@@ -359,8 +341,10 @@ static void enter_lpm_imx6_smp(void)
 		low_bus_freq_mode = 0;
 		cur_bus_freq_mode = BUS_FREQ_AUDIO;
 	} else {
-		busfreq_func.update(LPAPM_CLK);
-
+		if (ddr_type == MMDC_MDMISC_DDR_TYPE_DDR3)
+			update_ddr_freq_imx_smp(LPAPM_CLK);
+		else if (ddr_type == MMDC_MDMISC_DDR_TYPE_LPDDR2)
+			update_lpddr2_freq_smp(LPAPM_CLK);
 		/* Make sure periph clk's parent also got updated */
 		clk_set_parent(periph_clk2_sel_clk, osc_clk);
 		/* Set periph_clk parent to OSC via periph_clk2_sel */
@@ -400,8 +384,10 @@ static void exit_lpm_imx6_up(void)
 	/* set periph_clk2 to pll3 */
 	clk_set_parent(periph_clk2_sel_clk, pll3_clk);
 
-	busfreq_func.update(ddr_normal_rate);
-
+	if (ddr_type == IMX_DDR_TYPE_DDR3)
+		update_ddr_freq_imx6_up(ddr_normal_rate);
+	else if (ddr_type == IMX_DDR_TYPE_LPDDR2 || ddr_type == IMX_MMDC_DDR_TYPE_LPDDR3)
+		update_lpddr2_freq(ddr_normal_rate);
 	/* correct parent info after ddr freq change in asm code */
 	clk_set_parent(periph2_pre_clk, pll2_400_clk);
 	clk_set_parent(periph2_clk, periph2_pre_clk);
@@ -435,9 +421,10 @@ static void exit_lpm_imx6_smp(void)
 		periph_clk_parent = pll2_400_clk;
 
 	clk_prepare_enable(pll2_400_clk);
-
-	busfreq_func.update(ddr_normal_rate);
-
+	if (ddr_type == MMDC_MDMISC_DDR_TYPE_DDR3)
+		update_ddr_freq_imx_smp(ddr_normal_rate);
+	else if (ddr_type == MMDC_MDMISC_DDR_TYPE_LPDDR2)
+		update_lpddr2_freq_smp(ddr_normal_rate);
 	/* Make sure periph clk's parent also got updated */
 	clk_set_parent(periph_clk2_sel_clk, pll3_clk);
 	clk_set_parent(periph_pre_clk, periph_clk_parent);
@@ -481,7 +468,7 @@ static void enter_lpm_imx6sl(void)
 		clk_set_rate(ahb_clk, LPAPM_CLK / 3);
 
 		/* Set up DDR to 100MHz. */
-		busfreq_func.update(HIGH_AUDIO_CLK);
+		update_lpddr2_freq(HIGH_AUDIO_CLK);
 
 		/* Fix the clock tree in kernel */
 		clk_set_parent(periph2_pre_clk, pll2_200_clk);
@@ -520,10 +507,6 @@ static void enter_lpm_imx6sl(void)
 	} else {
 		u32 arm_div, pll1_rate;
 		org_arm_rate = clk_get_rate(arm_clk);
-		if (org_arm_rate == 0) {
-			WARN_ON(1);
-			return;
-		}
 		if (low_bus_freq_mode && low_bus_count == 0) {
 			/*
 			 * We are already in DDR @ 24MHz state, but
@@ -581,9 +564,8 @@ static void enter_lpm_imx6sl(void)
 				 * is requested sometime later, the change is ignored.
 				 */
 				clk_set_parent(step_clk, osc_clk);
-
 				/* Now set DDR to 24MHz. */
-				busfreq_func.update(LPAPM_CLK);
+				update_lpddr2_freq(LPAPM_CLK);
 
 				/*
 				 * Fix the clock tree in kernel.
@@ -611,7 +593,7 @@ static void enter_lpm_imx6sl(void)
 static void exit_lpm_imx6sl(void)
 {
 	/* Change DDR freq in IRAM. */
-	busfreq_func.update(ddr_normal_rate);
+	update_lpddr2_freq(ddr_normal_rate);
 
 	/*
 	 * Fix the clock tree in kernel.
@@ -660,7 +642,7 @@ static void enter_lpm_imx7d(void)
 	clk_prepare_enable(pfd2_270m);
 	if (audio_bus_count) {
 		clk_prepare_enable(pfd0_392m);
-		busfreq_func.update(HIGH_AUDIO_CLK);
+		update_ddr_freq_imx_smp(HIGH_AUDIO_CLK);
 
 		clk_set_parent(dram_alt_sel, pfd0_392m);
 		clk_set_parent(dram_root, dram_alt_root);
@@ -674,7 +656,7 @@ static void enter_lpm_imx7d(void)
 		low_bus_freq_mode = 0;
 		cur_bus_freq_mode = BUS_FREQ_AUDIO;
 	} else {
-		busfreq_func.update(LPAPM_CLK);
+		update_ddr_freq_imx_smp(LPAPM_CLK);
 
 		clk_set_parent(dram_alt_sel, osc_clk);
 		clk_set_parent(dram_root, dram_alt_root);
@@ -696,7 +678,7 @@ static void exit_lpm_imx7d(void)
 	clk_set_rate(ahb_clk, LPAPM_CLK / 2);
 	clk_set_parent(ahb_sel_clk, pfd2_270m);
 
-	busfreq_func.update(ddr_normal_rate);
+	update_ddr_freq_imx_smp(ddr_normal_rate);
 
 	clk_set_parent(dram_root, pll_dram);
 }
@@ -1081,19 +1063,30 @@ static ssize_t bus_freq_scaling_enable_store(struct device *dev,
 static int bus_freq_pm_notify(struct notifier_block *nb, unsigned long event,
 	void *dummy)
 {
+	if (cpu_is_imx7d() && imx_src_is_m4_enabled()) {
+		if (event == PM_SUSPEND_PREPARE)
+			imx_mu_lpm_ready(false);
+		else if (event == PM_POST_SUSPEND)
+			imx_mu_lpm_ready(true);
+
+		/*
+		 * If M4 is in low frequency mode, we should not force the
+		 * system AXI bus to high frequency but let it switch to low
+		 * frequency mode when entering suspend...
+		 */
+		if (imx_mu_is_m4_in_low_freq())
+			return NOTIFY_OK;
+	}
+
 	mutex_lock(&bus_freq_mutex);
 
 	if (event == PM_SUSPEND_PREPARE) {
-		if (cpu_is_imx7d() && imx_src_is_m4_enabled())
-			imx_mu_lpm_ready(false);
 		high_bus_count++;
 		set_high_bus_freq(1);
 		busfreq_suspended = 1;
 	} else if (event == PM_POST_SUSPEND) {
 		busfreq_suspended = 0;
 		high_bus_count--;
-		if (cpu_is_imx7d() && imx_src_is_m4_enabled())
-			imx_mu_lpm_ready(true);
 		schedule_delayed_work(&bus_freq_daemon,
 			usecs_to_jiffies(5000000));
 	}
@@ -1136,10 +1129,6 @@ static DEVICE_ATTR(enable, 0644, bus_freq_scaling_enable_show,
 static int busfreq_probe(struct platform_device *pdev)
 {
 	u32 err;
-#ifdef CONFIG_OPTEE
-	struct device_node *node_optee = 0;
-	uint32_t busfreq_val;
-#endif
 
 	busfreq_dev = &pdev->dev;
 
@@ -1339,75 +1328,34 @@ static int busfreq_probe(struct platform_device *pdev)
 			ddr_normal_rate = 400000000;
 			pr_info("ddr3 normal rate changed to 400MHz for TO1.1.\n");
 		}
-		busfreq_func.init   = &init_ddrc_ddr_settings;
-		busfreq_func.update = &update_ddr_freq_imx_smp;
+		err = init_ddrc_ddr_settings(pdev);
 	} else if (cpu_is_imx6sx() || cpu_is_imx6ul() || cpu_is_imx6ull() ||
-		cpu_is_imx6sll()) {
+		   cpu_is_imx6sll()) {
 		ddr_type = imx_mmdc_get_ddr_type();
-		if (ddr_type == IMX_DDR_TYPE_DDR3) {
-			busfreq_func.init   = &init_mmdc_ddr3_settings_imx6_up;
-			busfreq_func.update = &update_ddr_freq_imx6_up;
-		} else if (ddr_type == IMX_DDR_TYPE_LPDDR2 ||
-			 ddr_type == IMX_MMDC_DDR_TYPE_LPDDR3) {
-			busfreq_func.init   = &init_mmdc_lpddr2_settings;
-			busfreq_func.update = &update_lpddr2_freq;
-		}
+		if (ddr_type == IMX_DDR_TYPE_DDR3)
+			err = init_mmdc_ddr3_settings_imx6_up(pdev);
+		else if (ddr_type == IMX_DDR_TYPE_LPDDR2 ||
+			 ddr_type == IMX_MMDC_DDR_TYPE_LPDDR3)
+			err = init_mmdc_lpddr2_settings(pdev);
 	} else if (cpu_is_imx6q() || cpu_is_imx6dl()) {
 		ddr_type = imx_mmdc_get_ddr_type();
-		if (ddr_type == MMDC_MDMISC_DDR_TYPE_DDR3) {
-			busfreq_func.init   = &init_mmdc_ddr3_settings_imx6_smp;
-			busfreq_func.update = &update_ddr_freq_imx_smp;
-		} else if (ddr_type == MMDC_MDMISC_DDR_TYPE_LPDDR2) {
-			busfreq_func.init   = &init_mmdc_lpddr2_settings_mx6q;
-			busfreq_func.update = &update_lpddr2_freq_smp;
-		}
+		if (ddr_type == MMDC_MDMISC_DDR_TYPE_DDR3)
+			err = init_mmdc_ddr3_settings_imx6_smp(pdev);
+		else if (ddr_type == MMDC_MDMISC_DDR_TYPE_LPDDR2)
+			err = init_mmdc_lpddr2_settings_mx6q(pdev);
 	} else if (cpu_is_imx6sl()) {
-		busfreq_func.init   = &init_mmdc_lpddr2_settings;
-		busfreq_func.update = &update_lpddr2_freq;
+		err = init_mmdc_lpddr2_settings(pdev);
 	}
 
-#ifdef CONFIG_OPTEE
-	/*
-	 * Find the OPTEE node in the DT and look for the
-	 * busfreq property.
-	 * If property present and set to 1, busfreq is done by
-	 * calling the OPTEE OS
-	 */
-	node_optee = of_find_compatible_node(NULL, NULL, "linaro,optee-tz");
-
-	if (node_optee) {
-		if (of_property_read_u32(node_optee, "busfreq",
-			    &busfreq_val) == 0) {
-			pr_info("OPTEE busfreq %s",
-				(busfreq_val ? "Supported" : "Not Supported"));
-			if (busfreq_val) {
-				busfreq_func.init   = &init_freq_optee;
-				busfreq_func.update = &update_freq_optee;
-			}
-		}
-	}
-#endif
-
-	if (busfreq_func.init)
-		err = busfreq_func.init(pdev);
-	else
-		err = -EINVAL;
-
-	if (!err) {
-		if (cpu_is_imx6sx()) {
-			/*
-			 * If M4 is enabled and rate > 24MHz,
-			 * add high bus count
-			 */
-			if (imx_src_is_m4_enabled() &&
-				(clk_get_rate(m4_clk) > LPAPM_CLK))
-				high_bus_count++;
-		}
-
-		if (cpu_is_imx7d() && imx_src_is_m4_enabled()) {
+	if ((cpu_is_imx6sx() || cpu_is_imx7d()) && imx_src_is_m4_enabled()) {
+		/* if M4 at rate > 24MHz, add high bus count */
+		if (clk_get_rate(m4_clk) > LPAPM_CLK)
 			high_bus_count++;
+		else
+			imx_mu_set_m4_low_freq();
+
+		if (cpu_is_imx7d())
 			imx_mu_lpm_ready(true);
-		}
 	}
 
 	if (err) {
@@ -1422,11 +1370,23 @@ static const struct of_device_id imx_busfreq_ids[] = {
 	{ /* sentinel */ }
 };
 
+static int busfreq_suspend(struct device *pdev)
+{
+	flush_delayed_work(&low_bus_freq_handler);
+
+	return 0;
+}
+
+static const struct dev_pm_ops busfreq_pm_ops = {
+	SET_LATE_SYSTEM_SLEEP_PM_OPS(busfreq_suspend, NULL)
+};
+
 static struct platform_driver busfreq_driver = {
 	.driver = {
 		.name = "imx_busfreq",
 		.owner  = THIS_MODULE,
 		.of_match_table = imx_busfreq_ids,
+		.pm = &busfreq_pm_ops,
 		},
 	.probe = busfreq_probe,
 };
@@ -1443,7 +1403,7 @@ static int __init busfreq_init(void)
 	if (platform_driver_register(&busfreq_driver) != 0)
 		return -ENODEV;
 
-	pr_info("Bus freq driver module loaded\n");
+	printk(KERN_INFO "Bus freq driver module loaded\n");
 #endif
 	return 0;
 }

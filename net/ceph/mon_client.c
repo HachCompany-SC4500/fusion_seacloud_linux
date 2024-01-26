@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0
 #include <linux/ceph/ceph_debug.h>
 
 #include <linux/module.h>
@@ -7,7 +6,6 @@
 #include <linux/random.h>
 #include <linux/sched.h>
 
-#include <linux/ceph/ceph_features.h>
 #include <linux/ceph/mon_client.h>
 #include <linux/ceph/libceph.h>
 #include <linux/ceph/debugfs.h>
@@ -45,13 +43,15 @@ struct ceph_monmap *ceph_monmap_decode(void *p, void *end)
 	int i, err = -EINVAL;
 	struct ceph_fsid fsid;
 	u32 epoch, num_mon;
+	u16 version;
 	u32 len;
 
 	ceph_decode_32_safe(&p, end, len, bad);
 	ceph_decode_need(&p, end, len, bad);
 
 	dout("monmap_decode %p %p len %d\n", p, end, (int)(end-p));
-	p += sizeof(u16);  /* skip version */
+
+	ceph_decode_16_safe(&p, end, version, bad);
 
 	ceph_decode_need(&p, end, sizeof(fsid) + 2*sizeof(u32), bad);
 	ceph_decode_copy(&p, &fsid, sizeof(fsid));
@@ -307,10 +307,6 @@ static void handle_subscribe_ack(struct ceph_mon_client *monc,
 
 	mutex_lock(&monc->mutex);
 	if (monc->sub_renew_sent) {
-		/*
-		 * This is only needed for legacy (infernalis or older)
-		 * MONs -- see delayed_work().
-		 */
 		monc->sub_renew_after = monc->sub_renew_sent +
 					    (seconds >> 1) * HZ - 1;
 		dout("%s sent %lu duration %d renew after %lu\n", __func__,
@@ -685,8 +681,7 @@ bad:
 /*
  * Do a synchronous statfs().
  */
-int ceph_monc_do_statfs(struct ceph_mon_client *monc, u64 data_pool,
-			struct ceph_statfs *buf)
+int ceph_monc_do_statfs(struct ceph_mon_client *monc, struct ceph_statfs *buf)
 {
 	struct ceph_mon_generic_request *req;
 	struct ceph_mon_statfs *h;
@@ -706,7 +701,6 @@ int ceph_monc_do_statfs(struct ceph_mon_client *monc, u64 data_pool,
 		goto out;
 
 	req->u.st = buf;
-	req->request->hdr.version = cpu_to_le16(2);
 
 	mutex_lock(&monc->mutex);
 	register_generic_request(req);
@@ -716,8 +710,6 @@ int ceph_monc_do_statfs(struct ceph_mon_client *monc, u64 data_pool,
 	h->monhdr.session_mon = cpu_to_le16(-1);
 	h->monhdr.session_mon_tid = 0;
 	h->fsid = monc->monmap->fsid;
-	h->contains_data_pool = (data_pool != CEPH_NOPOOL);
-	h->data_pool = cpu_to_le64(data_pool);
 	send_generic_request(monc, req);
 	mutex_unlock(&monc->mutex);
 
@@ -922,15 +914,6 @@ int ceph_monc_blacklist_add(struct ceph_mon_client *monc,
 	mutex_unlock(&monc->mutex);
 
 	ret = wait_generic_request(req);
-	if (!ret)
-		/*
-		 * Make sure we have the osdmap that includes the blacklist
-		 * entry.  This is needed to ensure that the OSDs pick up the
-		 * new blacklist before processing any future requests from
-		 * this client.
-		 */
-		ret = ceph_wait_for_latest_osdmap(monc->client, 0);
-
 out:
 	put_generic_request(req);
 	return ret;
@@ -983,8 +966,7 @@ static void delayed_work(struct work_struct *work)
 			un_backoff(monc);
 		}
 
-		if (is_auth &&
-		    !(monc->con.peer_features & CEPH_FEATURE_MON_STATEFUL_SUB)) {
+		if (is_auth) {
 			unsigned long now = jiffies;
 
 			dout("%s renew subs? now %lu renew after %lu\n",
@@ -1055,21 +1037,21 @@ int ceph_monc_init(struct ceph_mon_client *monc, struct ceph_client *cl)
 	err = -ENOMEM;
 	monc->m_subscribe_ack = ceph_msg_new(CEPH_MSG_MON_SUBSCRIBE_ACK,
 				     sizeof(struct ceph_mon_subscribe_ack),
-				     GFP_KERNEL, true);
+				     GFP_NOFS, true);
 	if (!monc->m_subscribe_ack)
 		goto out_auth;
 
-	monc->m_subscribe = ceph_msg_new(CEPH_MSG_MON_SUBSCRIBE, 128,
-					 GFP_KERNEL, true);
+	monc->m_subscribe = ceph_msg_new(CEPH_MSG_MON_SUBSCRIBE, 128, GFP_NOFS,
+					 true);
 	if (!monc->m_subscribe)
 		goto out_subscribe_ack;
 
-	monc->m_auth_reply = ceph_msg_new(CEPH_MSG_AUTH_REPLY, 4096,
-					  GFP_KERNEL, true);
+	monc->m_auth_reply = ceph_msg_new(CEPH_MSG_AUTH_REPLY, 4096, GFP_NOFS,
+					  true);
 	if (!monc->m_auth_reply)
 		goto out_subscribe;
 
-	monc->m_auth = ceph_msg_new(CEPH_MSG_AUTH, 4096, GFP_KERNEL, true);
+	monc->m_auth = ceph_msg_new(CEPH_MSG_AUTH, 4096, GFP_NOFS, true);
 	monc->pending_auth = 0;
 	if (!monc->m_auth)
 		goto out_auth_reply;

@@ -8,9 +8,8 @@
  *  option) any later version.
  */
 
-#include <linux/export.h>
-#include <linux/init.h>
 #include <linux/interrupt.h>
+#include <linux/module.h>
 
 #include <asm/irq_cpu.h>
 #include <asm/i8259.h>
@@ -103,7 +102,7 @@ static struct irqaction ip6_irqaction = {
 static struct irqaction cascade_irqaction = {
 	.handler = no_action,
 	.name = "cascade",
-	.flags = IRQF_NO_THREAD | IRQF_NO_SUSPEND,
+	.flags = IRQF_NO_THREAD,
 };
 
 void __init mach_init_irq(void)

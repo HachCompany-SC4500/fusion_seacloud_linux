@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 NXP.
+ * Copyright 2017-2018 NXP.
  *
  * The code contained herein is licensed under the GNU General Public
  * License. You may obtain a copy of the GNU General Public License
@@ -31,7 +31,6 @@ static u32 share_count_sai5;
 static u32 share_count_sai6;
 static u32 share_count_dcss;
 static u32 share_count_pdm;
-static u32 share_count_nand;
 
 /* IDs of PLLs available on i.MX8 Mini */
 enum {
@@ -77,8 +76,8 @@ static const struct imx_int_pll_rate_table imx8mm_intpll_tbl[] = {
 };
 
 static const struct imx_int_pll_rate_table imx8mm_audiopll_tbl[] = {
-	PLL_1443X_RATE(786432000U, 262, 2, 2, 9437),
-	PLL_1443X_RATE(722534400U, 361, 3, 2, 17511),
+	PLL_1443X_RATE(786432000U, 655, 5, 2, 23593),
+	PLL_1443X_RATE(722534400U, 301, 5, 1, 3670),
 };
 
 static const struct imx_int_pll_rate_table imx8mm_videopll_tbl[] = {
@@ -889,8 +888,7 @@ static void __init imx8mm_clocks_init(struct device_node *ccm_node)
 	clks[IMX8MM_CLK_PWM3_ROOT] = imx_clk_gate4("pwm3_root_clk", "pwm3_div", base + 0x42a0, 0);
 	clks[IMX8MM_CLK_PWM4_ROOT] = imx_clk_gate4("pwm4_root_clk", "pwm4_div", base + 0x42b0, 0);
 	clks[IMX8MM_CLK_QSPI_ROOT] = imx_clk_gate4("qspi_root_clk", "qspi_div", base + 0x42f0, 0);
-	clks[IMX8MM_CLK_NAND_ROOT] = imx_clk_gate2_shared2("nand_root_clk", "nand_div", base + 0x4300, 0, &share_count_nand);
-	clks[IMX8MM_CLK_NAND_USDHC_BUS_RAWNAND_CLK] = imx_clk_gate2_shared2("nand_usdhc_rawnand_clk", "nand_usdhc_bus_div", base + 0x4300, 0, &share_count_nand);
+	clks[IMX8MM_CLK_NAND_ROOT] = imx_clk_gate4("nand_root_clk", "nand_div", base + 0x4300, 0);
 	clks[IMX8MM_CLK_SAI1_ROOT] = imx_clk_gate2_shared2("sai1_root_clk", "sai1_div", base + 0x4330, 0, &share_count_sai1);
 	clks[IMX8MM_CLK_SAI1_IPG] = imx_clk_gate2_shared2("sai1_ipg_clk", "ipg_audio_root", base + 0x4330, 0, &share_count_sai1);
 	clks[IMX8MM_CLK_SAI2_ROOT] = imx_clk_gate2_shared2("sai2_root_clk", "sai2_div", base + 0x4340, 0, &share_count_sai2);
@@ -903,7 +901,6 @@ static void __init imx8mm_clocks_init(struct device_node *ccm_node)
 	clks[IMX8MM_CLK_SAI5_IPG] = imx_clk_gate2_shared2("sai5_ipg_clk", "ipg_audio_root", base + 0x4370, 0, &share_count_sai5);
 	clks[IMX8MM_CLK_SAI6_ROOT] = imx_clk_gate2_shared2("sai6_root_clk", "sai6_div", base + 0x4380, 0, &share_count_sai6);
 	clks[IMX8MM_CLK_SAI6_IPG] = imx_clk_gate2_shared2("sai6_ipg_clk", "ipg_audio_root", base + 0x4380, 0, &share_count_sai6);
-	clks[IMX8MM_CLK_SIM_HSIO] = imx_clk_gate4("sim_hsio_clk", "usb_bus_div", base + 0x4450, 0);
 	clks[IMX8MM_CLK_UART1_ROOT] = imx_clk_gate4("uart1_root_clk", "uart1_div", base + 0x4490, 0);
 	clks[IMX8MM_CLK_UART2_ROOT] = imx_clk_gate4("uart2_root_clk", "uart2_div", base + 0x44a0, 0);
 	clks[IMX8MM_CLK_UART3_ROOT] = imx_clk_gate4("uart3_root_clk", "uart3_div", base + 0x44b0, 0);

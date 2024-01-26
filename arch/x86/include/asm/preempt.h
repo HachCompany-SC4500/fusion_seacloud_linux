@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __ASM_PREEMPT_H
 #define __ASM_PREEMPT_H
 
@@ -25,13 +24,7 @@ static __always_inline int preempt_count(void)
 
 static __always_inline void preempt_count_set(int pc)
 {
-	int old, new;
-
-	do {
-		old = raw_cpu_read_4(__preempt_count);
-		new = (old & PREEMPT_NEED_RESCHED) |
-			(pc & ~PREEMPT_NEED_RESCHED);
-	} while (raw_cpu_cmpxchg_4(__preempt_count, old, new) != old);
+	raw_cpu_write_4(__preempt_count, pc);
 }
 
 /*
@@ -101,14 +94,19 @@ static __always_inline bool should_resched(int preempt_offset)
 
 #ifdef CONFIG_PREEMPT
   extern asmlinkage void ___preempt_schedule(void);
-# define __preempt_schedule() \
-	asm volatile ("call ___preempt_schedule" : ASM_CALL_CONSTRAINT)
+# define __preempt_schedule()					\
+({								\
+	register void *__sp asm(_ASM_SP);			\
+	asm volatile ("call ___preempt_schedule" : "+r"(__sp));	\
+})
 
   extern asmlinkage void preempt_schedule(void);
   extern asmlinkage void ___preempt_schedule_notrace(void);
-# define __preempt_schedule_notrace() \
-	asm volatile ("call ___preempt_schedule_notrace" : ASM_CALL_CONSTRAINT)
-
+# define __preempt_schedule_notrace()					\
+({									\
+	register void *__sp asm(_ASM_SP);				\
+	asm volatile ("call ___preempt_schedule_notrace" : "+r"(__sp));	\
+})
   extern asmlinkage void preempt_schedule_notrace(void);
 #endif
 

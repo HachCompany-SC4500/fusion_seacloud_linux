@@ -42,8 +42,6 @@ struct imx_priv {
 	u32 asrc_format;
 	bool is_codec_master;
 	bool is_codec_rpmsg;
-	bool is_stream_in_use[2];
-	bool is_stream_tdm[2];
 };
 
 static struct imx_priv card_priv;
@@ -56,32 +54,21 @@ static int imx_cs42888_surround_hw_params(struct snd_pcm_substream *substream,
 	struct snd_soc_dai *codec_dai = rtd->codec_dai;
 	struct imx_priv *priv = &card_priv;
 	struct device *dev = &priv->pdev->dev;
-	bool tx = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
 	u32 channels = params_channels(params);
 	u32 max_tdm_rate;
-	u32 dai_format;
+
+	bool enable_tdm = channels > 1 && channels % 2;
+	u32 dai_format = SND_SOC_DAIFMT_NB_NF |
+		(enable_tdm ? SND_SOC_DAIFMT_DSP_A : SND_SOC_DAIFMT_LEFT_J);
+
 	int ret = 0;
-
-	priv->is_stream_tdm[tx] = channels > 1 && channels % 2;
-	dai_format = SND_SOC_DAIFMT_NB_NF |
-		(priv->is_stream_tdm[tx] ? SND_SOC_DAIFMT_DSP_A :
-					SND_SOC_DAIFMT_LEFT_J);
-
-	priv->is_stream_in_use[tx] = true;
-
-	if (priv->is_stream_in_use[!tx] &&
-		(priv->is_stream_tdm[tx] != priv->is_stream_tdm[!tx])) {
-
-		dev_err(dev, "Don't support different fmt for tx & rx\n");
-		return -EINVAL;
-	}
 
 	priv->mclk_freq = clk_get_rate(priv->codec_clk);
 	priv->esai_freq = clk_get_rate(priv->esai_clk);
 
 	if (priv->is_codec_master) {
 		/* TDM is not supported by codec in master mode */
-		if (priv->is_stream_tdm[tx]) {
+		if (enable_tdm) {
 			dev_err(dev, "%d channels are not supported in codec master mode\n",
 				channels);
 			return -EINVAL;
@@ -133,7 +120,7 @@ static int imx_cs42888_surround_hw_params(struct snd_pcm_substream *substream,
 		return ret;
 	}
 	/* set i.MX active slot mask */
-	if (priv->is_stream_tdm[tx]) {
+	if (enable_tdm) {
 		/* 2 required by ESAI BCLK divisors, 8 slots, 32 width */
 		if (priv->is_codec_master)
 			max_tdm_rate = priv->mclk_freq / (8*32);
@@ -162,16 +149,6 @@ static int imx_cs42888_surround_hw_params(struct snd_pcm_substream *substream,
 		dev_err(dev, "failed to set codec dai fmt: %d\n", ret);
 		return ret;
 	}
-	return 0;
-}
-
-static int imx_cs42888_surround_hw_free(struct snd_pcm_substream *substream)
-{
-	struct imx_priv *priv = &card_priv;
-	bool tx = substream->stream == SNDRV_PCM_STREAM_PLAYBACK;
-
-	priv->is_stream_in_use[tx] = false;
-
 	return 0;
 }
 
@@ -206,7 +183,6 @@ static int imx_cs42888_surround_startup(struct snd_pcm_substream *substream)
 static struct snd_soc_ops imx_cs42888_surround_ops = {
 	.startup = imx_cs42888_surround_startup,
 	.hw_params = imx_cs42888_surround_hw_params,
-	.hw_free = imx_cs42888_surround_hw_free,
 };
 
 /**
@@ -216,7 +192,6 @@ static struct snd_soc_ops imx_cs42888_surround_ops = {
  */
 static struct snd_soc_ops imx_cs42888_surround_ops_be = {
 	.hw_params = imx_cs42888_surround_hw_params,
-	.hw_free = imx_cs42888_surround_hw_free,
 };
 
 
@@ -383,34 +358,28 @@ static int imx_cs42888_probe(struct platform_device *pdev)
 		}
 	}
 
-	if (priv->is_codec_rpmsg) {
-		imx_cs42888_dai[0].codec_name     = "rpmsg-audio-codec-cs42888";
-		imx_cs42888_dai[0].codec_dai_name = "cs42888";
-	} else {
-		imx_cs42888_dai[0].codec_of_node   = codec_np;
-	}
-
 	/*if there is no asrc controller, we only enable one device*/
 	if (!asrc_pdev) {
+		if (priv->is_codec_rpmsg) {
+			imx_cs42888_dai[0].codec_name     = "rpmsg-audio-codec-cs42888";
+			imx_cs42888_dai[0].codec_dai_name = "cs42888";
+		} else {
+			imx_cs42888_dai[0].codec_of_node   = codec_np;
+		}
 		imx_cs42888_dai[0].cpu_dai_name    = dev_name(&esai_pdev->dev);
 		imx_cs42888_dai[0].platform_of_node = esai_np;
 		snd_soc_card_imx_cs42888.num_links = 1;
 		snd_soc_card_imx_cs42888.num_dapm_routes =
 			ARRAY_SIZE(audio_map) - 2;
 	} else {
+		imx_cs42888_dai[0].codec_of_node   = codec_np;
 		imx_cs42888_dai[0].cpu_dai_name    = dev_name(&esai_pdev->dev);
 		imx_cs42888_dai[0].platform_of_node = esai_np;
 		imx_cs42888_dai[1].cpu_of_node    = asrc_np;
 		imx_cs42888_dai[1].platform_of_node   = asrc_np;
+		imx_cs42888_dai[2].codec_of_node   = codec_np;
 		imx_cs42888_dai[2].cpu_dai_name    = dev_name(&esai_pdev->dev);
 		snd_soc_card_imx_cs42888.num_links = 3;
-
-		if (priv->is_codec_rpmsg) {
-			imx_cs42888_dai[2].codec_name     = "rpmsg-audio-codec-cs42888";
-			imx_cs42888_dai[2].codec_dai_name = "cs42888";
-		} else {
-			imx_cs42888_dai[2].codec_of_node   = codec_np;
-		}
 
 		ret = of_property_read_u32(asrc_np, "fsl,asrc-rate",
 						&priv->asrc_rate);

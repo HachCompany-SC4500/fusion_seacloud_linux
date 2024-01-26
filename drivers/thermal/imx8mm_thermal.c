@@ -32,8 +32,6 @@
 #define TRITSR_VALID	BIT(31)
 #define TEMP_VAL_MASK	0xff
 
-#define TEMP_LOW_LIMIT	10
-
 #define IMX_TEMP_PASSIVE_COOL_DELTA 10000
 
 struct imx8mm_tmu {
@@ -62,13 +60,12 @@ static int tmu_get_temp(void *data, int *temp)
 	msleep(1);
 
 	/* read the calibrated temp value */
-	val = readl_relaxed(tmu->tmu_base + TRITSR) & TEMP_VAL_MASK;
+	val = readl_relaxed(tmu->tmu_base + TRITSR);
 
-	/* check if the temp in the sensor's range */
-	if (val < TEMP_LOW_LIMIT)
+	if (!(val & TRITSR_VALID))
 		return -EAGAIN;
 
-	*temp = val * 1000;
+	*temp = (val & TEMP_VAL_MASK) * 1000;
 
 	return 0;
 }

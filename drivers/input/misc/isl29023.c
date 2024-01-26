@@ -916,7 +916,7 @@ static int isl29023_probe(struct i2c_client *client,
 	}
 
 	err = of_property_read_u32(of_node, "rext", &rext);
-	if (err || rext == 0)
+	if (err)
 		rext = DEFAULT_REGISTOR_VAL;
 	shared_irq = of_property_read_bool(of_node, "shared-interrupt");
 

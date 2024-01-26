@@ -59,9 +59,8 @@ void f2fs_trace_pid(struct page *page)
 	pid_t pid = task_pid_nr(current);
 	void *p;
 
-	set_page_private(page, (unsigned long)pid);
+	page->private = pid;
 
-retry:
 	if (radix_tree_preload(GFP_NOFS))
 		return;
 
@@ -72,12 +71,7 @@ retry:
 	if (p)
 		radix_tree_delete(&pids, pid);
 
-	if (radix_tree_insert(&pids, pid, current)) {
-		spin_unlock(&pids_lock);
-		radix_tree_preload_end();
-		cond_resched();
-		goto retry;
-	}
+	f2fs_radix_tree_insert(&pids, pid, current);
 
 	trace_printk("%3x:%3x %4x %-16s\n",
 			MAJOR(inode->i_sb->s_dev), MINOR(inode->i_sb->s_dev),
@@ -144,7 +138,7 @@ static unsigned int gang_lookup_pids(pid_t *results, unsigned long first_index,
 
 	radix_tree_for_each_slot(slot, &pids, &iter, first_index) {
 		results[ret] = iter.index;
-		if (++ret == max_items)
+		if (++ret == PIDVEC_SIZE)
 			break;
 	}
 	return ret;

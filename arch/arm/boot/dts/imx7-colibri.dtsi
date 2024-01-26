@@ -45,6 +45,7 @@
 		compatible = "pwm-backlight";
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_gpio_bl_on>;
+		pwms = <&pwm1 0 5000000 0>;
 		enable-gpios = <&gpio5 1 GPIO_ACTIVE_HIGH>;
 	};
 
@@ -104,10 +105,12 @@
 	cpu-supply = <&reg_DCDC2>;
 };
 
+/* Colibri SPI */
 &ecspi3 {
+	fsl,spi-num-chipselects = <1>;
+	cs-gpios = <&gpio4 11 GPIO_ACTIVE_HIGH>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_ecspi3 &pinctrl_ecspi3_cs>;
-	cs-gpios = <&gpio4 11 GPIO_ACTIVE_HIGH>;
 };
 
 &fec1 {
@@ -126,19 +129,6 @@
 	phy-mode = "rmii";
 	phy-supply = <&reg_LDO1>;
 	fsl,magic-packet;
-	phy-handle = <&ethphy0>;
-
-	mdio {
-		#address-cells = <1>;
-		#size-cells = <0>;
-
-		ethphy0: ethernet-phy@0 {
-			compatible = "ethernet-phy-ieee802.3-c22";
-			max-speed = <100>;
-			micrel,led-mode = <0>;
-			reg = <0>;
-		};
-	};
 };
 
 &flexcan1 {
@@ -163,11 +153,8 @@
 
 &i2c1 {
 	clock-frequency = <100000>;
-	pinctrl-names = "default", "gpio";
+	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_i2c1 &pinctrl_i2c1_int>;
-	pinctrl-1 = <&pinctrl_i2c1_recovery &pinctrl_i2c1_int>;
-	scl-gpios = <&gpio1 4 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
-	sda-gpios = <&gpio1 5 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
 	status = "okay";
 
 	codec: sgtl5000@0a {
@@ -268,11 +255,8 @@
 
 &i2c4 {
 	clock-frequency = <100000>;
-	pinctrl-names = "default", "gpio";
+	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_i2c4>;
-	pinctrl-1 = <&pinctrl_i2c4_recovery>;
-	scl-gpios = <&gpio7 8 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
-	sda-gpios = <&gpio7 9 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
 };
 
 &lcdif {
@@ -309,6 +293,10 @@
 &pwm4 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_pwm4>;
+};
+
+&reg_1p0d {
+	vin-supply = <&reg_DCDC3>;
 };
 
 &sai1 {
@@ -356,7 +344,6 @@
 	pinctrl-0 = <&pinctrl_usdhc1 &pinctrl_cd_usdhc1>;
 	cd-gpios = <&gpio1 0 GPIO_ACTIVE_LOW>;
 	disable-wp;
-	vqmmc-supply = <&reg_LDO2>;
 };
 
 &usdhc3 {
@@ -367,9 +354,6 @@
 	assigned-clocks = <&clks IMX7D_USDHC3_ROOT_CLK>;
 	assigned-clock-rates = <400000000>;
 	bus-width = <8>;
-	max-frequency = <100000000>;
-	vmmc-supply = <&reg_module_3v3>;
-	vqmmc-supply = <&reg_DCDC3>;
 	non-removable;
 	sdhci-caps-mask = <0x80000000 0x0>;
 };
@@ -462,7 +446,7 @@
 		fsl,pins = <
 			/* CS1 */
 			MX7D_PAD_ECSPI2_SS0__GPIO4_IO23		0x74 /* SODIMM 65 */
-		 >;
+		>;
 	};
 
 	pinctrl_gpio6: gpio6-grp { /* ATMEL MXT TOUCH */
@@ -485,7 +469,7 @@
 		>;
 	};
 
-	pinctrl_can_int: can-int-grp {
+	pinctrl_can_int: canintgrp {
 		fsl,pins = <
 			MX7D_PAD_SD1_RESET_B__GPIO5_IO2		0X14 /* SODIMM 73 */
 		>;
@@ -553,7 +537,7 @@
 
 	pinctrl_gpio_bl_on: gpio-bl-on {
 		fsl,pins = <
-			MX7D_PAD_SD1_WP__GPIO5_IO1		0x14 /* SODIMM 71 */
+			MX7D_PAD_SD1_WP__GPIO5_IO1		0x14
 		>;
 	};
 
@@ -578,15 +562,8 @@
 
 	pinctrl_i2c4: i2c4-grp {
 		fsl,pins = <
-			MX7D_PAD_ENET1_RGMII_TD2__I2C4_SCL	0x4000007f
 			MX7D_PAD_ENET1_RGMII_TD3__I2C4_SDA	0x4000007f
-		>;
-	};
-
-	pinctrl_i2c4_recovery: i2c4-recoverygrp {
-		fsl,pins = <
-			MX7D_PAD_ENET1_RGMII_TD2__GPIO7_IO8	0x4000007f
-			MX7D_PAD_ENET1_RGMII_TD3__GPIO7_IO9	0x4000007f
+			MX7D_PAD_ENET1_RGMII_TD2__I2C4_SCL	0x4000007f
 		>;
 	};
 
@@ -805,41 +782,34 @@
 
 	pinctrl_gpio_lpsr: gpio1-grp {
 		fsl,pins = <
-			MX7D_PAD_LPSR_GPIO1_IO02__GPIO1_IO2	0x59
-			MX7D_PAD_LPSR_GPIO1_IO03__GPIO1_IO3	0x59
+			MX7D_PAD_GPIO1_IO02__GPIO1_IO2	0x14 /* SODIMM 135 */
+			MX7D_PAD_GPIO1_IO03__GPIO1_IO3	0x14 /* SODIMM 22 */
 		>;
 	};
 
 	pinctrl_gpiokeys: gpiokeysgrp {
 		fsl,pins = <
-			MX7D_PAD_LPSR_GPIO1_IO01__GPIO1_IO1	0x19
+			MX7D_PAD_GPIO1_IO01__GPIO1_IO1	0x19
 		>;
 	};
 
 	pinctrl_i2c1: i2c1-grp {
 		fsl,pins = <
-			MX7D_PAD_LPSR_GPIO1_IO05__I2C1_SDA	0x4000007f
-			MX7D_PAD_LPSR_GPIO1_IO04__I2C1_SCL	0x4000007f
-		>;
-	};
-
-	pinctrl_i2c1_recovery: i2c1-recoverygrp {
-		fsl,pins = <
-			MX7D_PAD_LPSR_GPIO1_IO04__GPIO1_IO4	0x4000007f
-			MX7D_PAD_LPSR_GPIO1_IO05__GPIO1_IO5	0x4000007f
+			MX7D_PAD_GPIO1_IO05__I2C1_SDA	0x4000007f
+			MX7D_PAD_GPIO1_IO04__I2C1_SCL	0x4000007f
 		>;
 	};
 
 	pinctrl_cd_usdhc1: usdhc1-cd-grp {
 		fsl,pins = <
-			MX7D_PAD_LPSR_GPIO1_IO00__GPIO1_IO0	0x59 /* CD */
+			MX7D_PAD_GPIO1_IO00__GPIO1_IO0	0x59 /* CD */
 		>;
 	};
 
 	pinctrl_uart1_ctrl2: uart1-ctrl2-grp {
 		fsl,pins = <
-			MX7D_PAD_LPSR_GPIO1_IO07__GPIO1_IO7	0x14 /* DSR */
-			MX7D_PAD_LPSR_GPIO1_IO06__GPIO1_IO6	0x14 /* RI */
+			MX7D_PAD_GPIO1_IO07__GPIO1_IO7	0x14 /* DSR */
+			MX7D_PAD_GPIO1_IO06__GPIO1_IO6	0x14 /* RI */
 		>;
 	};
 };

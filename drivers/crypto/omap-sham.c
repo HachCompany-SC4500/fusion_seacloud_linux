@@ -41,7 +41,6 @@
 #include <crypto/algapi.h>
 #include <crypto/sha.h>
 #include <crypto/hash.h>
-#include <crypto/hmac.h>
 #include <crypto/internal/hash.h>
 
 #define MD5_DIGEST_SIZE			16
@@ -226,7 +225,7 @@ struct omap_sham_dev {
 	struct dma_chan		*dma_lch;
 	struct tasklet_struct	done_task;
 	u8			polling_mode;
-	u8			xmit_buf[BUFLEN] OMAP_ALIGNED;
+	u8			xmit_buf[BUFLEN];
 
 	unsigned long		flags;
 	struct crypto_queue	queue;
@@ -1338,8 +1337,8 @@ static int omap_sham_setkey(struct crypto_ahash *tfm, const u8 *key,
 		memcpy(bctx->opad, bctx->ipad, bs);
 
 		for (i = 0; i < bs; i++) {
-			bctx->ipad[i] ^= HMAC_IPAD_VALUE;
-			bctx->opad[i] ^= HMAC_OPAD_VALUE;
+			bctx->ipad[i] ^= 0x36;
+			bctx->opad[i] ^= 0x5c;
 		}
 	}
 
@@ -2133,7 +2132,7 @@ data_err:
 
 static int omap_sham_remove(struct platform_device *pdev)
 {
-	struct omap_sham_dev *dd;
+	static struct omap_sham_dev *dd;
 	int i, j;
 
 	dd = platform_get_drvdata(pdev);

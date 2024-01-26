@@ -222,8 +222,7 @@
 #define CLK_INFRA_PMICWRAP			17
 #define CLK_INFRA_DDCCI				18
 #define CLK_INFRA_CLK_13M			19
-#define CLK_INFRA_CPUSEL                        20
-#define CLK_INFRA_NR				21
+#define CLK_INFRA_NR				20
 
 /* PERICFG */
 

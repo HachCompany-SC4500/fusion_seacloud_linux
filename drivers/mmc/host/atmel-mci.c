@@ -44,7 +44,7 @@
 #include <asm/unaligned.h>
 
 /*
- * Superset of MCI IP registers integrated in Atmel AT91 Processor
+ * Superset of MCI IP registers integrated in Atmel AVR32 and AT91 Processors
  * Registers and bitfields marked with [2] are only available in MCI2
  */
 
@@ -171,6 +171,13 @@
 	__raw_readl((port)->regs + reg)
 #define	atmci_writel(port, reg, value)			\
 	__raw_writel((value), (port)->regs + reg)
+
+/* On AVR chips the Peripheral DMA Controller is not connected to MCI. */
+#ifdef CONFIG_AVR32
+#	define ATMCI_PDC_CONNECTED	0
+#else
+#	define ATMCI_PDC_CONNECTED	1
+#endif
 
 #define AUTOSUSPEND_DELAY	50
 
@@ -660,20 +667,21 @@ atmci_of_init(struct platform_device *pdev)
 	}
 
 	pdata = devm_kzalloc(&pdev->dev, sizeof(*pdata), GFP_KERNEL);
-	if (!pdata)
+	if (!pdata) {
+		dev_err(&pdev->dev, "could not allocate memory for pdata\n");
 		return ERR_PTR(-ENOMEM);
+	}
 
 	for_each_child_of_node(np, cnp) {
 		if (of_property_read_u32(cnp, "reg", &slot_id)) {
-			dev_warn(&pdev->dev, "reg property is missing for %pOF\n",
-				 cnp);
+			dev_warn(&pdev->dev, "reg property is missing for %s\n",
+				 cnp->full_name);
 			continue;
 		}
 
 		if (slot_id >= ATMCI_MAX_NR_SLOTS) {
 			dev_warn(&pdev->dev, "can't have more than %d slots\n",
 			         ATMCI_MAX_NR_SLOTS);
-			of_node_put(cnp);
 			break;
 		}
 
@@ -1084,6 +1092,7 @@ static u32
 atmci_prepare_data_pdc(struct atmel_mci *host, struct mmc_data *data)
 {
 	u32 iflags, tmp;
+	unsigned int sg_len;
 	int i;
 
 	data->error = -EINPROGRESS;
@@ -1108,8 +1117,8 @@ atmci_prepare_data_pdc(struct atmel_mci *host, struct mmc_data *data)
 
 	/* Configure PDC */
 	host->data_size = data->blocks * data->blksz;
-	dma_map_sg(&host->pdev->dev, data->sg, data->sg_len,
-		   mmc_get_dma_dir(data));
+	sg_len = dma_map_sg(&host->pdev->dev, data->sg, data->sg_len,
+			    mmc_get_dma_dir(data));
 
 	if ((!host->caps.has_rwproof)
 	    && (host->data->flags & MMC_DATA_WRITE)) {
@@ -1540,8 +1549,21 @@ static void atmci_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 			mmc_regulator_set_ocr(mmc, mmc->supply.vmmc, ios->vdd);
 		break;
 	default:
+		/*
+		 * TODO: None of the currently available AVR32-based
+		 * boards allow MMC power to be turned off. Implement
+		 * power control when this can be tested properly.
+		 *
+		 * We also need to hook this into the clock management
+		 * somehow so that newly inserted cards aren't
+		 * subjected to a fast clock before we have a chance
+		 * to figure out what the maximum rate is. Currently,
+		 * there's no way to avoid this, and there never will
+		 * be for boards that don't support power control.
+		 */
 		break;
 	}
+
 }
 
 static int atmci_get_ro(struct mmc_host *mmc)
@@ -1954,14 +1976,13 @@ static void atmci_tasklet_func(unsigned long priv)
 			}
 
 			atmci_request_end(host, host->mrq);
-			goto unlock; /* atmci_request_end() sets host->state */
+			state = STATE_IDLE;
 			break;
 		}
 	} while (state != prev_state);
 
 	host->state = state;
 
-unlock:
 	spin_unlock(&host->lock);
 }
 
@@ -2443,7 +2464,7 @@ static void atmci_get_cap(struct atmel_mci *host)
 			"version: 0x%x\n", version);
 
 	host->caps.has_dma_conf_reg = 0;
-	host->caps.has_pdc = 1;
+	host->caps.has_pdc = ATMCI_PDC_CONNECTED;
 	host->caps.has_cfg_reg = 0;
 	host->caps.has_cstor_reg = 0;
 	host->caps.has_highspeed = 0;

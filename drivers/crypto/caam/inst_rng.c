@@ -1,8 +1,7 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
  * CAAM RNG instantiation driver backend
  *
- * Copyright 2017-2019 NXP
+ * Copyright 2017-2018 NXP
  */
 
 #include <linux/device.h>
@@ -191,7 +190,7 @@ int deinstantiate_rng(int state_handle_mask)
 		/*
 		 * If the corresponding bit is set, then it means the state
 		 * handle was initialized by us, and thus it needs to be
-		 * deinitialized as well
+		 * deintialized as well
 		 */
 		if ((1 << sh_idx) & state_handle_mask) {
 			/*
@@ -230,11 +229,7 @@ static void kick_trng(struct device *ctrldev, int ent_delay)
 	r4tst = &ctrl->r4tst[0];
 
 	/* put RNG4 into program mode */
-	/* Setting both RTMCTL:PRGM and RTMCTL:TRNG_ACC causes TRNG to
-	 * properly invalidate the entropy in the entropy register and
-	 * force re-generation.
-	 */
-	clrsetbits_32(&r4tst->rtmctl, 0, RTMCTL_PRGM | RTMCTL_ACC);
+	clrsetbits_32(&r4tst->rtmctl, 0, RTMCTL_PRGM);
 
 	/*
 	 * Performance-wise, it does not make sense to
@@ -248,7 +243,7 @@ static void kick_trng(struct device *ctrldev, int ent_delay)
 	      >> RTSDCTL_ENT_DLY_SHIFT;
 	if (ent_delay <= val) {
 		/* put RNG4 into run mode */
-		clrsetbits_32(&r4tst->rtmctl, RTMCTL_PRGM | RTMCTL_ACC, 0);
+		clrsetbits_32(&r4tst->rtmctl, RTMCTL_PRGM, 0);
 		return;
 	}
 
@@ -268,7 +263,7 @@ static void kick_trng(struct device *ctrldev, int ent_delay)
 	 */
 	clrsetbits_32(&val, 0, RTMCTL_SAMP_MODE_RAW_ES_SC);
 	/* put RNG4 into run mode */
-	clrsetbits_32(&val, RTMCTL_PRGM | RTMCTL_ACC, 0);
+	clrsetbits_32(&val, RTMCTL_PRGM, 0);
 	/* write back the control register */
 	wr_reg32(&r4tst->rtmctl, val);
 }
@@ -290,15 +285,23 @@ int inst_rng_imx(struct platform_device *pdev)
 	ctrlpriv = dev_get_drvdata(ctrldev);
 	ctrl = (struct caam_ctrl __iomem *)ctrlpriv->ctrl;
 
-	cha_vid_ls = rd_reg32(&ctrl->perfmon.cha_id_ls);
+#ifndef CONFIG_ARM64
+	/*
+	 * Check if the Secure Firmware is running,
+	 * check only for i.MX6 and i.MX7
+	 */
+	if (of_find_compatible_node(NULL, NULL, "linaro,optee-tz")) {
+		pr_info("RNG Instantation done by Secure Firmware\n");
+		return ret;
+	}
+#endif
 
+	cha_vid_ls = rd_reg32(&ctrl->perfmon.cha_id_ls);
 	/*
 	 * If SEC has RNG version >= 4 and RNG state handle has not been
 	 * already instantiated, do RNG instantiation
-	 * In case of DPAA 2.x, RNG is managed by MC firmware.
 	 */
-	if (!caam_dpaa2 &&
-		(cha_vid_ls & CHA_ID_LS_RNG_MASK) >> CHA_ID_LS_RNG_SHIFT >= 4) {
+	if ((cha_vid_ls & CHA_ID_LS_RNG_MASK) >> CHA_ID_LS_RNG_SHIFT >= 4) {
 		ctrlpriv->rng4_sh_init =
 			rd_reg32(&ctrl->r4tst[0].rdsta);
 		/*

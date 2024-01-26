@@ -22,7 +22,6 @@
 #include <linux/version.h>
 #include <linux/workqueue.h>
 #include <linux/kthread.h>
-#include <linux/freezer.h>
 #include <media/cec.h>
 #include <soc/imx8/soc.h>
 
@@ -174,10 +173,8 @@ static int cec_poll_worker(void *_cec)
 	int num_rx_msgs, i;
 	int sts;
 
-	set_freezable();
-
 	for (;;) {
-		if (kthread_freezable_should_stop(NULL))
+		if (kthread_should_stop())
 			break;
 
 		/* Check TX State */
@@ -279,11 +276,11 @@ int imx_cec_register(struct imx_cec_dev *cec)
 					 CEC_NAME,
 					 CEC_CAP_PHYS_ADDR | CEC_CAP_LOG_ADDRS |
 					 CEC_CAP_TRANSMIT | CEC_CAP_PASSTHROUGH
-					 | CEC_CAP_RC, 1);
+					 | CEC_CAP_RC, 1, dev);
 	ret = PTR_ERR_OR_ZERO(cec->adap);
 	if (ret)
 		return ret;
-	ret = cec_register_adapter(cec->adap, dev);
+	ret = cec_register_adapter(cec->adap);
 	if (ret) {
 		cec_delete_adapter(cec->adap);
 		return ret;

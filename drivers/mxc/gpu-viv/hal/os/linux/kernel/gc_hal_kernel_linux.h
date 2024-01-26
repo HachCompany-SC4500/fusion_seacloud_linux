@@ -118,6 +118,14 @@
 /* Protection bit when mapping memroy to user sapce */
 #define gcmkPAGED_MEMROY_PROT(x)    pgprot_writecombine(x)
 
+#if gcdNONPAGED_MEMORY_BUFFERABLE
+#define gcmkIOREMAP                 ioremap_wc
+#define gcmkNONPAGED_MEMROY_PROT(x) pgprot_writecombine(x)
+#elif !gcdNONPAGED_MEMORY_CACHEABLE
+#define gcmkIOREMAP                 ioremap_nocache
+#define gcmkNONPAGED_MEMROY_PROT(x) pgprot_noncached(x)
+#endif
+
 #define gcdSUPPRESS_OOM_MESSAGE 1
 
 #if gcdSUPPRESS_OOM_MESSAGE
@@ -139,29 +147,6 @@
 #       define gcdIRQF_FLAG   (IRQF_DISABLED)
 #   endif
 #endif
-
-/* gcdLINUX_SYNC_FILE and CONFIG_SYNC_FILE. */
-#if LINUX_VERSION_CODE < KERNEL_VERSION(4,10,0)
-#  define dma_fence                         fence
-#  define dma_fence_array                   fence_array
-#  define dma_fence_ops                     fence_ops
-
-#  define dma_fence_default_wait            fence_default_wait
-
-#  define dma_fence_signal(f)               fence_signal(f)
-#  define dma_fence_signal_locked(f)        fence_signal_locked(f)
-#  define dma_fence_get(f)                  fence_get(f)
-#  define dma_fence_put(f)                  fence_put(f)
-#  define dma_fence_is_array(f)             fence_is_array(f)
-#  define dma_fence_is_signaled(f)          fence_is_signaled(f)
-#  define to_dma_fence_array(f)             to_fence_array(f)
-#  define dma_fence_wait_timeout(f, n, t)   fence_wait_timeout((f), (n), (t))
-#  define dma_fence_init(f, o, l, t, s)     fence_init((f), (o), (l), (t), (s))
-#  define dma_fence_context_alloc(s)        fence_context_alloc(s)
-
-#endif
-
-extern struct device *galcore_device;
 
 /******************************************************************************\
 ********************************** Structures **********************************
@@ -218,7 +203,7 @@ struct _gckOS
     /* Signal management. */
 
     /* Lock. */
-    spinlock_t                  signalLock;
+    struct mutex                signalMutex;
 
     /* signal id database. */
     gcsINTEGER_DB               signalDB;
@@ -274,12 +259,12 @@ typedef struct _gcsSIGNAL
     /* ID. */
     gctUINT32 id;
 
-#if gcdLINUX_SYNC_FILE
-#ifndef CONFIG_SYNC_FILE
+#if gcdANDROID_NATIVE_FENCE_SYNC
+#if LINUX_VERSION_CODE < KERNEL_VERSION(4,9,0)
     /* Parent timeline. */
     struct sync_timeline * timeline;
 #  else
-    struct dma_fence *fence;
+    struct fence *fence;
 #  endif
 #endif
 }
@@ -345,26 +330,6 @@ _GetProcessID(
 #else
     return current->tgid;
 #endif
-}
-
-static inline void
-_MemoryBarrier(
-    void
-    )
-{
-#if defined(CONFIG_ARM) && (LINUX_VERSION_CODE < KERNEL_VERSION(2,6,34))
-    dsb();
-#else
-    mb();
-#endif
-}
-
-static inline void
-_Barrier(
-    void
-    )
-{
-    barrier();
 }
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(2,6,25)

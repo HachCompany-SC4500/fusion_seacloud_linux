@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
  * zfcp device driver
  *
@@ -29,7 +28,7 @@ static bool enable_dif;
 module_param_named(dif, enable_dif, bool, 0400);
 MODULE_PARM_DESC(dif, "Enable DIF/DIX data integrity support");
 
-static bool allow_lun_scan = true;
+static bool allow_lun_scan = 1;
 module_param(allow_lun_scan, bool, 0600);
 MODULE_PARM_DESC(allow_lun_scan, "For NPIV, scan and attach all storage LUNs");
 
@@ -327,10 +326,6 @@ static int zfcp_scsi_eh_host_reset_handler(struct scsi_cmnd *scpnt)
 	struct zfcp_adapter *adapter = zfcp_sdev->port->adapter;
 	int ret = SUCCESS, fc_ret;
 
-	if (!(adapter->connection_features & FSF_FEATURE_NPIV_MODE)) {
-		zfcp_erp_port_forced_reopen_all(adapter, 0, "schrh_p");
-		zfcp_erp_wait(adapter);
-	}
 	zfcp_erp_adapter_reopen(adapter, 0, "schrh_1");
 	zfcp_erp_wait(adapter);
 	fc_ret = fc_block_scsi_eh(scpnt);
@@ -347,7 +342,6 @@ static struct scsi_host_template zfcp_scsi_host_template = {
 	.module			 = THIS_MODULE,
 	.name			 = "zfcp",
 	.queuecommand		 = zfcp_scsi_queuecommand,
-	.eh_timed_out		 = fc_eh_timed_out,
 	.eh_abort_handler	 = zfcp_scsi_eh_abort_handler,
 	.eh_device_reset_handler = zfcp_scsi_eh_device_reset_handler,
 	.eh_target_reset_handler = zfcp_scsi_eh_target_reset_handler,

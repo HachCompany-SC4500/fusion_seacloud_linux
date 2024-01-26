@@ -21,9 +21,8 @@
 #include <linux/cpu.h>
 #include <linux/workqueue.h>
 #include <linux/slab.h>
-#include <linux/topology.h>
 
-#include <linux/uaccess.h>
+#include <asm/uaccess.h>
 #include <asm/io.h>
 #include <asm/rtas.h>
 #include <asm/prom.h>
@@ -274,14 +273,24 @@ void pSeries_log_error(char *buf, unsigned int err_type, int fatal)
 }
 
 #ifdef CONFIG_PPC_PSERIES
-static void handle_prrn_event(s32 scope)
+static s32 prrn_update_scope;
+
+static void prrn_work_fn(struct work_struct *work)
 {
 	/*
 	 * For PRRN, we must pass the negative of the scope value in
 	 * the RTAS event.
 	 */
-	pseries_devicetree_update(-scope);
-	numa_update_cpu_topology(false);
+	pseries_devicetree_update(-prrn_update_scope);
+}
+
+static DECLARE_WORK(prrn_work, prrn_work_fn);
+
+static void prrn_schedule_update(u32 scope)
+{
+	flush_work(&prrn_work);
+	prrn_update_scope = scope;
+	schedule_work(&prrn_work);
 }
 
 static void handle_rtas_event(const struct rtas_error_log *log)
@@ -292,7 +301,7 @@ static void handle_rtas_event(const struct rtas_error_log *log)
 	/* For PRRN Events the extended log length is used to denote
 	 * the scope for calling rtas update-nodes.
 	 */
-	handle_prrn_event(rtas_error_extended_log_length(log));
+	prrn_schedule_update(rtas_error_extended_log_length(log));
 }
 
 #else
@@ -425,10 +434,7 @@ static void do_event_scan(void)
 		}
 
 		if (error == 0) {
-			if (rtas_error_type((struct rtas_error_log *)logdata) !=
-			    RTAS_TYPE_PRRN)
-				pSeries_log_error(logdata, ERR_TYPE_RTAS_LOG,
-						  0);
+			pSeries_log_error(logdata, ERR_TYPE_RTAS_LOG, 0);
 			handle_rtas_event((struct rtas_error_log *)logdata);
 		}
 

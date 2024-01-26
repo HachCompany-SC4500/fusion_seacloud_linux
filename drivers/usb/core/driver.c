@@ -15,9 +15,6 @@
  *		(usb_device_id matching changes by Adam J. Richter)
  *	(C) Copyright Greg Kroah-Hartman 2002-2003
  *
- * Released under the GPLv2 only.
- * SPDX-License-Identifier: GPL-2.0
- *
  * NOTE! This is not actually a driver at all, rather this is
  * just a collection of helper routines that implement the
  * matching, probing, releasing, suspending and resuming for
@@ -472,6 +469,11 @@ static int usb_unbind_interface(struct device *dev)
 	if (driver->supports_autosuspend)
 		pm_runtime_disable(dev);
 	pm_runtime_set_suspended(dev);
+
+	/* Undo any residual pm_autopm_get_interface_* calls */
+	for (r = atomic_read(&intf->pm_usage_cnt); r > 0; --r)
+		usb_autopm_put_interface_no_suspend(intf);
+	atomic_set(&intf->pm_usage_cnt, 0);
 
 	if (!error)
 		usb_autosuspend_device(udev);
@@ -1623,6 +1625,7 @@ void usb_autopm_put_interface(struct usb_interface *intf)
 	int			status;
 
 	usb_mark_last_busy(udev);
+	atomic_dec(&intf->pm_usage_cnt);
 	status = pm_runtime_put_sync(&intf->dev);
 	dev_vdbg(&intf->dev, "%s: cnt %d -> %d\n",
 			__func__, atomic_read(&intf->dev.power.usage_count),
@@ -1651,6 +1654,7 @@ void usb_autopm_put_interface_async(struct usb_interface *intf)
 	int			status;
 
 	usb_mark_last_busy(udev);
+	atomic_dec(&intf->pm_usage_cnt);
 	status = pm_runtime_put(&intf->dev);
 	dev_vdbg(&intf->dev, "%s: cnt %d -> %d\n",
 			__func__, atomic_read(&intf->dev.power.usage_count),
@@ -1672,6 +1676,7 @@ void usb_autopm_put_interface_no_suspend(struct usb_interface *intf)
 	struct usb_device	*udev = interface_to_usbdev(intf);
 
 	usb_mark_last_busy(udev);
+	atomic_dec(&intf->pm_usage_cnt);
 	pm_runtime_put_noidle(&intf->dev);
 }
 EXPORT_SYMBOL_GPL(usb_autopm_put_interface_no_suspend);
@@ -1702,6 +1707,8 @@ int usb_autopm_get_interface(struct usb_interface *intf)
 	status = pm_runtime_get_sync(&intf->dev);
 	if (status < 0)
 		pm_runtime_put_sync(&intf->dev);
+	else
+		atomic_inc(&intf->pm_usage_cnt);
 	dev_vdbg(&intf->dev, "%s: cnt %d -> %d\n",
 			__func__, atomic_read(&intf->dev.power.usage_count),
 			status);
@@ -1735,6 +1742,8 @@ int usb_autopm_get_interface_async(struct usb_interface *intf)
 	status = pm_runtime_get(&intf->dev);
 	if (status < 0 && status != -EINPROGRESS)
 		pm_runtime_put_noidle(&intf->dev);
+	else
+		atomic_inc(&intf->pm_usage_cnt);
 	dev_vdbg(&intf->dev, "%s: cnt %d -> %d\n",
 			__func__, atomic_read(&intf->dev.power.usage_count),
 			status);
@@ -1758,6 +1767,7 @@ void usb_autopm_get_interface_no_resume(struct usb_interface *intf)
 	struct usb_device	*udev = interface_to_usbdev(intf);
 
 	usb_mark_last_busy(udev);
+	atomic_inc(&intf->pm_usage_cnt);
 	pm_runtime_get_noresume(&intf->dev);
 }
 EXPORT_SYMBOL_GPL(usb_autopm_get_interface_no_resume);
@@ -1878,10 +1888,13 @@ int usb_runtime_idle(struct device *dev)
 	return -EBUSY;
 }
 
-static int usb_set_usb2_hardware_lpm(struct usb_device *udev, int enable)
+int usb_set_usb2_hardware_lpm(struct usb_device *udev, int enable)
 {
 	struct usb_hcd *hcd = bus_to_hcd(udev->bus);
 	int ret = -EPERM;
+
+	if (enable && !udev->usb2_hw_lpm_allowed)
+		return 0;
 
 	if (hcd->driver->set_usb2_hw_lpm) {
 		ret = hcd->driver->set_usb2_hw_lpm(hcd, udev, enable);
@@ -1890,24 +1903,6 @@ static int usb_set_usb2_hardware_lpm(struct usb_device *udev, int enable)
 	}
 
 	return ret;
-}
-
-int usb_enable_usb2_hardware_lpm(struct usb_device *udev)
-{
-	if (!udev->usb2_hw_lpm_capable ||
-	    !udev->usb2_hw_lpm_allowed ||
-	    udev->usb2_hw_lpm_enabled)
-		return 0;
-
-	return usb_set_usb2_hardware_lpm(udev, 1);
-}
-
-int usb_disable_usb2_hardware_lpm(struct usb_device *udev)
-{
-	if (!udev->usb2_hw_lpm_enabled)
-		return 0;
-
-	return usb_set_usb2_hardware_lpm(udev, 0);
 }
 
 #endif /* CONFIG_PM */

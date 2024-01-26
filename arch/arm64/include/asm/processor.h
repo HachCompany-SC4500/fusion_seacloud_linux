@@ -73,7 +73,6 @@ extern phys_addr_t arm64_dma_phys_limit;
 #define ARCH_LOW_ADDRESS_LIMIT	(arm64_dma_phys_limit - 1)
 
 struct debug_info {
-#ifdef CONFIG_HAVE_HW_BREAKPOINT
 	/* Have we suspended stepping by a debugger? */
 	int			suspended_step;
 	/* Allow breakpoints and watchpoints to be disabled for this thread. */
@@ -82,7 +81,6 @@ struct debug_info {
 	/* Hardware breakpoints pinned to this task. */
 	struct perf_event	*hbp_break[ARM_MAX_BRP];
 	struct perf_event	*hbp_watch[ARM_MAX_WRP];
-#endif
 };
 
 struct cpu_context {
@@ -127,15 +125,12 @@ struct thread_struct {
 #define task_user_tls(t)	(&(t)->thread.tp_value)
 #endif
 
-/* Sync TPIDR_EL0 back to thread_struct for current */
-void tls_preserve_current_state(void);
-
 #define INIT_THREAD  {	}
 
 static inline void start_thread_common(struct pt_regs *regs, unsigned long pc)
 {
 	memset(regs, 0, sizeof(*regs));
-	forget_syscall(regs);
+	regs->syscallno = ~0UL;
 	regs->pc = pc;
 }
 
@@ -177,12 +172,14 @@ static inline void cpu_relax(void)
 	asm volatile("yield" ::: "memory");
 }
 
+#define cpu_relax_lowlatency()                cpu_relax()
+
 /* Thread switching */
 extern struct task_struct *cpu_switch_to(struct task_struct *prev,
 					 struct task_struct *next);
 
 #define task_pt_regs(p) \
-	((struct pt_regs *)(THREAD_SIZE + task_stack_page(p)) - 1)
+	((struct pt_regs *)(THREAD_START_SP + task_stack_page(p)) - 1)
 
 #define KSTK_EIP(tsk)	((unsigned long)task_pt_regs(tsk)->pc)
 #define KSTK_ESP(tsk)	user_stack_pointer(task_pt_regs(tsk))
@@ -215,6 +212,7 @@ static inline void spin_lock_prefetch(const void *ptr)
 #endif
 
 int cpu_enable_pan(void *__unused);
+int cpu_enable_uao(void *__unused);
 int cpu_enable_cache_maint_trap(void *__unused);
 
 #endif /* __ASSEMBLY__ */

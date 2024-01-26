@@ -22,7 +22,6 @@
 
 #include "imx-pcm.h"
 #include "fsl_rpmsg_i2s.h"
-#include "../../core/pcm_local.h"
 
 struct i2s_info *i2s_info_g;
 
@@ -64,10 +63,6 @@ static int imx_rpmsg_pcm_hw_params(struct snd_pcm_substream *substream,
 		rpmsg->send_msg.param.format   = RPMSG_S16_LE;
 	else if (params_format(params) == SNDRV_PCM_FORMAT_S24_LE)
 		rpmsg->send_msg.param.format   = RPMSG_S24_LE;
-	else if (params_format(params) == SNDRV_PCM_FORMAT_DSD_U16_LE)
-		rpmsg->send_msg.param.format   = SNDRV_PCM_FORMAT_DSD_U16_LE;
-	else if (params_format(params) == SNDRV_PCM_FORMAT_DSD_U32_LE)
-		rpmsg->send_msg.param.format   = SNDRV_PCM_FORMAT_DSD_U32_LE;
 	else
 		rpmsg->send_msg.param.format   = RPMSG_S32_LE;
 
@@ -127,7 +122,7 @@ static void imx_rpmsg_timer_callback(unsigned long data)
 	struct fsl_rpmsg_i2s *rpmsg_i2s = dev_get_drvdata(cpu_dai->dev);
 	struct i2s_info      *i2s_info =  &rpmsg_i2s->i2s_info;
 	struct i2s_rpmsg     *rpmsg;
-	int index = i2s_info->work_write_index;
+	u8 index = i2s_info->work_index;
 	int time_msec;
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
@@ -140,22 +135,18 @@ static void imx_rpmsg_timer_callback(unsigned long data)
 	else
 		rpmsg->send_msg.header.cmd = I2S_RX_POINTER;
 
-	if (i2s_info->work_write_index != i2s_info->work_read_index) {
-		memcpy(&i2s_info->work_list[index].msg, rpmsg,
+	memcpy(&i2s_info->work_list[index].msg, rpmsg,
 					sizeof(struct i2s_rpmsg_s));
-		queue_work(i2s_info->rpmsg_wq, &i2s_info->work_list[index].work);
-		i2s_info->work_write_index++;
-		i2s_info->work_write_index %= WORK_MAX_NUM;
-	} else
-		i2s_info->msg_drop_count[substream->stream]++;
+	queue_work(i2s_info->rpmsg_wq, &i2s_info->work_list[index].work);
+	i2s_info->work_index++;
+	i2s_info->work_index %= WORK_MAX_NUM;
 
 	if (rpmsg_i2s->force_lpa) {
-		time_msec = (int)(runtime->period_size*1000/runtime->rate);
+		time_msec = min(500,
+			    (int)(runtime->period_size*1000/runtime->rate));
 		mod_timer(&i2s_info->stream_timer[substream->stream],
 			     jiffies + msecs_to_jiffies(time_msec));
 	}
-
-	snd_pcm_period_elapsed(substream);
 }
 
 static int imx_rpmsg_pcm_open(struct snd_pcm_substream *substream)
@@ -211,7 +202,6 @@ static int imx_rpmsg_pcm_open(struct snd_pcm_substream *substream)
 	if (ret < 0)
 		return ret;
 
-	i2s_info->msg_drop_count[substream->stream] = 0;
 
 	/*create thread*/
 	setup_timer(&i2s_info->stream_timer[substream->stream],
@@ -247,10 +237,6 @@ static int imx_rpmsg_pcm_close(struct snd_pcm_substream *substream)
 
 	kfree(prtd);
 
-	if (i2s_info->msg_drop_count[substream->stream])
-		dev_warn(rtd->dev, "Msg is dropped!, number is %d\n",
-			i2s_info->msg_drop_count[substream->stream]);
-
 	return ret;
 }
 
@@ -266,6 +252,7 @@ static int imx_rpmsg_pcm_prepare(struct snd_pcm_substream *substream)
 	 */
 	if ((runtime->access == SNDRV_PCM_ACCESS_RW_INTERLEAVED ||
 		runtime->access == SNDRV_PCM_ACCESS_RW_NONINTERLEAVED) &&
+		(substream->f_flags & O_NONBLOCK) &&
 			rpmsg_i2s->version == 2 &&
 			rpmsg_i2s->enable_lpa)
 		rpmsg_i2s->force_lpa = 1;
@@ -290,7 +277,6 @@ static void imx_rpmsg_pcm_dma_complete(void *arg)
 {
 	struct snd_pcm_substream *substream = arg;
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
-	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct snd_soc_dai   *cpu_dai = rtd->cpu_dai;
 	struct fsl_rpmsg_i2s *rpmsg_i2s = dev_get_drvdata(cpu_dai->dev);
 	struct i2s_info      *i2s_info =  &rpmsg_i2s->i2s_info;
@@ -307,21 +293,7 @@ static void imx_rpmsg_pcm_dma_complete(void *arg)
 	rpmsg->recv_msg.param.buffer_offset =
 		rpmsg2->recv_msg.param.buffer_tail
 				* snd_pcm_lib_period_bytes(substream);
-	/*
-	 * With suspend state, which is not running state, M4 will trigger
-	 * system resume with PERIOD_DONE command, at this moment, the
-	 * snd_pcm_period_elapsed can't update the hw ptr. so change the
-	 * state to be running and update timer
-	 *
-	 */
-	if (!snd_pcm_running(substream) && rpmsg_i2s->force_lpa) {
-		int time_msec;
 
-		substream->runtime->status->state = SNDRV_PCM_STATE_RUNNING;
-		time_msec = (int)(runtime->period_size*1000/runtime->rate);
-		mod_timer(&i2s_info->stream_timer[substream->stream],
-		     jiffies + msecs_to_jiffies(time_msec));
-	}
 	snd_pcm_period_elapsed(substream);
 }
 
@@ -332,7 +304,7 @@ static int imx_rpmsg_pcm_prepare_and_submit(struct snd_pcm_substream *substream)
 	struct fsl_rpmsg_i2s *rpmsg_i2s = dev_get_drvdata(cpu_dai->dev);
 	struct i2s_info      *i2s_info =  &rpmsg_i2s->i2s_info;
 	struct i2s_rpmsg   *rpmsg;
-	int index = i2s_info->work_write_index;
+	u8 index = i2s_info->work_index;
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 		rpmsg = &i2s_info->rpmsg[I2S_TX_BUFFER];
@@ -354,21 +326,18 @@ static int imx_rpmsg_pcm_prepare_and_submit(struct snd_pcm_substream *substream)
 			rpmsg->send_msg.param.buffer_size /
 				rpmsg->send_msg.param.period_size;
 
-	if (i2s_info->work_write_index != i2s_info->work_read_index) {
-		memcpy(&i2s_info->work_list[index].msg, rpmsg,
+	memcpy(&i2s_info->work_list[index].msg, rpmsg,
 					sizeof(struct i2s_rpmsg_s));
-		queue_work(i2s_info->rpmsg_wq, &i2s_info->work_list[index].work);
-		i2s_info->work_write_index++;
-		i2s_info->work_write_index %= WORK_MAX_NUM;
-	} else
-		return -EPIPE;
+	queue_work(i2s_info->rpmsg_wq, &i2s_info->work_list[index].work);
+	i2s_info->work_index++;
+	i2s_info->work_index %= WORK_MAX_NUM;
 
 	i2s_info->callback[substream->stream] = imx_rpmsg_pcm_dma_complete;
 	i2s_info->callback_param[substream->stream] = substream;
 	return 0;
 }
 
-static int imx_rpmsg_async_issue_pending(struct snd_pcm_substream *substream)
+static void imx_rpmsg_async_issue_pending(struct snd_pcm_substream *substream)
 {
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
@@ -376,7 +345,7 @@ static int imx_rpmsg_async_issue_pending(struct snd_pcm_substream *substream)
 	struct fsl_rpmsg_i2s *rpmsg_i2s = dev_get_drvdata(cpu_dai->dev);
 	struct i2s_info      *i2s_info =  &rpmsg_i2s->i2s_info;
 	struct i2s_rpmsg     *rpmsg;
-	int index = i2s_info->work_write_index;
+	u8 index = i2s_info->work_index;
 	int time_msec;
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
@@ -389,22 +358,18 @@ static int imx_rpmsg_async_issue_pending(struct snd_pcm_substream *substream)
 	else
 		rpmsg->send_msg.header.cmd = I2S_RX_START;
 
-	if (i2s_info->work_write_index != i2s_info->work_read_index) {
-		memcpy(&i2s_info->work_list[index].msg, rpmsg,
-						sizeof(struct i2s_rpmsg_s));
-		queue_work(i2s_info->rpmsg_wq, &i2s_info->work_list[index].work);
-		i2s_info->work_write_index++;
-		i2s_info->work_write_index %= WORK_MAX_NUM;
-	} else
-		return -EPIPE;
+	memcpy(&i2s_info->work_list[index].msg, rpmsg,
+					sizeof(struct i2s_rpmsg_s));
+	queue_work(i2s_info->rpmsg_wq, &i2s_info->work_list[index].work);
+	i2s_info->work_index++;
+	i2s_info->work_index %= WORK_MAX_NUM;
 
 	if (rpmsg_i2s->force_lpa) {
-		time_msec = (int)(runtime->period_size*1000/runtime->rate);
+		time_msec = min(500,
+			    (int)(runtime->period_size*1000/runtime->rate));
 		mod_timer(&i2s_info->stream_timer[substream->stream],
 			    jiffies + msecs_to_jiffies(time_msec));
 	}
-
-	return 0;
 }
 
 static int imx_rpmsg_restart(struct snd_pcm_substream *substream)
@@ -414,7 +379,7 @@ static int imx_rpmsg_restart(struct snd_pcm_substream *substream)
 	struct fsl_rpmsg_i2s       *rpmsg_i2s = dev_get_drvdata(cpu_dai->dev);
 	struct i2s_info            *i2s_info =  &rpmsg_i2s->i2s_info;
 	struct i2s_rpmsg     *rpmsg;
-	int index = i2s_info->work_write_index;
+	u8 index = i2s_info->work_index;
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 		rpmsg = &i2s_info->rpmsg[I2S_TX_RESTART];
@@ -426,14 +391,11 @@ static int imx_rpmsg_restart(struct snd_pcm_substream *substream)
 	else
 		rpmsg->send_msg.header.cmd = I2S_RX_RESTART;
 
-	if (i2s_info->work_write_index != i2s_info->work_read_index) {
-		memcpy(&i2s_info->work_list[index].msg, rpmsg,
+	memcpy(&i2s_info->work_list[index].msg, rpmsg,
 					sizeof(struct i2s_rpmsg_s));
-		queue_work(i2s_info->rpmsg_wq, &i2s_info->work_list[index].work);
-		i2s_info->work_write_index++;
-		i2s_info->work_write_index %= WORK_MAX_NUM;
-	} else
-		return -EPIPE;
+	queue_work(i2s_info->rpmsg_wq, &i2s_info->work_list[index].work);
+	i2s_info->work_index++;
+	i2s_info->work_index %= WORK_MAX_NUM;
 
 	return 0;
 }
@@ -445,7 +407,7 @@ static int imx_rpmsg_pause(struct snd_pcm_substream *substream)
 	struct fsl_rpmsg_i2s       *rpmsg_i2s = dev_get_drvdata(cpu_dai->dev);
 	struct i2s_info            *i2s_info =  &rpmsg_i2s->i2s_info;
 	struct i2s_rpmsg     *rpmsg;
-	int index = i2s_info->work_write_index;
+	u8 index = i2s_info->work_index;
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 		rpmsg = &i2s_info->rpmsg[I2S_TX_PAUSE];
@@ -457,15 +419,11 @@ static int imx_rpmsg_pause(struct snd_pcm_substream *substream)
 	else
 		rpmsg->send_msg.header.cmd = I2S_RX_PAUSE;
 
-	if (i2s_info->work_write_index != i2s_info->work_read_index) {
-		memcpy(&i2s_info->work_list[index].msg, rpmsg,
-						sizeof(struct i2s_rpmsg_s));
-		queue_work(i2s_info->rpmsg_wq, &i2s_info->work_list[index].work);
-		i2s_info->work_write_index++;
-		i2s_info->work_write_index %= WORK_MAX_NUM;
-	} else
-		return -EPIPE;
-
+	memcpy(&i2s_info->work_list[index].msg, rpmsg,
+					sizeof(struct i2s_rpmsg_s));
+	queue_work(i2s_info->rpmsg_wq, &i2s_info->work_list[index].work);
+	i2s_info->work_index++;
+	i2s_info->work_index %= WORK_MAX_NUM;
 	return 0;
 }
 
@@ -476,8 +434,7 @@ static int imx_rpmsg_terminate_all(struct snd_pcm_substream *substream)
 	struct fsl_rpmsg_i2s       *rpmsg_i2s = dev_get_drvdata(cpu_dai->dev);
 	struct i2s_info            *i2s_info =  &rpmsg_i2s->i2s_info;
 	struct i2s_rpmsg     *rpmsg;
-	int index = i2s_info->work_write_index;
-	int cmd;
+	u8 index = i2s_info->work_index;
 
 	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
 		rpmsg = &i2s_info->rpmsg[I2S_TX_TERMINATE];
@@ -489,29 +446,13 @@ static int imx_rpmsg_terminate_all(struct snd_pcm_substream *substream)
 	else
 		rpmsg->send_msg.header.cmd = I2S_RX_TERMINATE;
 
-	if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK) {
-		cmd = I2S_TX_PERIOD_DONE + I2S_TYPE_A_NUM;
-		i2s_info->rpmsg[cmd].send_msg.param.buffer_tail = 0;
-		i2s_info->rpmsg[cmd].recv_msg.param.buffer_tail = 0;
-		i2s_info->rpmsg[I2S_TX_POINTER].recv_msg.param.buffer_offset = 0;
-	} else {
-		cmd = I2S_RX_PERIOD_DONE + I2S_TYPE_A_NUM;
-		i2s_info->rpmsg[cmd].send_msg.param.buffer_tail = 0;
-		i2s_info->rpmsg[cmd].recv_msg.param.buffer_tail = 0;
-		i2s_info->rpmsg[I2S_RX_POINTER].recv_msg.param.buffer_offset = 0;
-	}
+	memcpy(&i2s_info->work_list[index].msg, rpmsg,
+					sizeof(struct i2s_rpmsg_s));
+	queue_work(i2s_info->rpmsg_wq, &i2s_info->work_list[index].work);
+	i2s_info->work_index++;
+	i2s_info->work_index %= WORK_MAX_NUM;
 
 	del_timer(&i2s_info->stream_timer[substream->stream]);
-
-	if (i2s_info->work_write_index != i2s_info->work_read_index) {
-		memcpy(&i2s_info->work_list[index].msg, rpmsg,
-					sizeof(struct i2s_rpmsg_s));
-		queue_work(i2s_info->rpmsg_wq, &i2s_info->work_list[index].work);
-		i2s_info->work_write_index++;
-		i2s_info->work_write_index %= WORK_MAX_NUM;
-	} else
-		return -EPIPE;
-
 	return 0;
 }
 
@@ -521,49 +462,38 @@ int imx_rpmsg_pcm_trigger(struct snd_pcm_substream *substream, int cmd)
 	struct snd_soc_pcm_runtime *rtd = substream->private_data;
 	struct snd_soc_dai     *cpu_dai = rtd->cpu_dai;
 	struct fsl_rpmsg_i2s   *rpmsg_i2s = dev_get_drvdata(cpu_dai->dev);
-	struct i2s_info        *i2s_info =  &rpmsg_i2s->i2s_info;
-	int ret = 0;
+	int ret;
 
 	switch (cmd) {
 	case SNDRV_PCM_TRIGGER_START:
 		ret = imx_rpmsg_pcm_prepare_and_submit(substream);
 		if (ret)
 			return ret;
-		ret = imx_rpmsg_async_issue_pending(substream);
+		imx_rpmsg_async_issue_pending(substream);
 		break;
 	case SNDRV_PCM_TRIGGER_RESUME:
-		if (rpmsg_i2s->force_lpa) {
-			int time_msec;
-
-			time_msec = (int)(runtime->period_size*1000/runtime->rate);
-			mod_timer(&i2s_info->stream_timer[substream->stream],
-			     jiffies + msecs_to_jiffies(time_msec));
+		if (rpmsg_i2s->force_lpa)
 			break;
-		}
 	case SNDRV_PCM_TRIGGER_PAUSE_RELEASE:
-		ret = imx_rpmsg_restart(substream);
+		imx_rpmsg_restart(substream);
 		break;
 	case SNDRV_PCM_TRIGGER_SUSPEND:
 		if (!rpmsg_i2s->force_lpa) {
 			if (runtime->info & SNDRV_PCM_INFO_PAUSE)
-				ret = imx_rpmsg_pause(substream);
+				imx_rpmsg_pause(substream);
 			else
-				ret = imx_rpmsg_terminate_all(substream);
-		} else
-			del_timer(&i2s_info->stream_timer[substream->stream]);
+				imx_rpmsg_terminate_all(substream);
+		}
 		break;
 	case SNDRV_PCM_TRIGGER_PAUSE_PUSH:
-		ret = imx_rpmsg_pause(substream);
+		imx_rpmsg_pause(substream);
 		break;
 	case SNDRV_PCM_TRIGGER_STOP:
-		ret = imx_rpmsg_terminate_all(substream);
+		imx_rpmsg_terminate_all(substream);
 		break;
 	default:
 		return -EINVAL;
 	}
-
-	if (ret)
-		return ret;
 
 	return 0;
 }
@@ -577,10 +507,8 @@ int imx_rpmsg_pcm_ack(struct snd_pcm_substream *substream)
 	struct fsl_rpmsg_i2s       *rpmsg_i2s = dev_get_drvdata(cpu_dai->dev);
 	struct i2s_info            *i2s_info =  &rpmsg_i2s->i2s_info;
 	struct i2s_rpmsg           *rpmsg;
-	int index = i2s_info->work_write_index;
+	u8 index = i2s_info->work_index;
 	int buffer_tail = 0;
-	int writen_num = 0;
-	snd_pcm_sframes_t avail;
 
 	if (!rpmsg_i2s->force_lpa)
 		return 0;
@@ -602,32 +530,13 @@ int imx_rpmsg_pcm_ack(struct snd_pcm_substream *substream)
 	buffer_tail = buffer_tail /  snd_pcm_lib_period_bytes(substream);
 
 	if (buffer_tail != rpmsg->send_msg.param.buffer_tail) {
-		writen_num = buffer_tail - rpmsg->send_msg.param.buffer_tail;
-		if (writen_num < 0)
-			writen_num += runtime->periods;
-
 		rpmsg->send_msg.param.buffer_tail = buffer_tail;
-		memcpy(&i2s_info->period_done_msg[substream->stream], rpmsg,
-				sizeof(struct i2s_rpmsg_s));
-		i2s_info->period_done_msg_enabled[substream->stream] = true;
-
-		if (substream->stream == SNDRV_PCM_STREAM_PLAYBACK)
-			avail = snd_pcm_playback_hw_avail(runtime);
-		else
-			avail = snd_pcm_capture_hw_avail(runtime);
-
-		if ((avail - writen_num * runtime->period_size)
-					<= runtime->period_size) {
-			if (i2s_info->work_write_index != i2s_info->work_read_index) {
-				memcpy(&i2s_info->work_list[index].msg, rpmsg,
+		memcpy(&i2s_info->work_list[index].msg, rpmsg,
 					sizeof(struct i2s_rpmsg_s));
-				queue_work(i2s_info->rpmsg_wq,
+		queue_work(i2s_info->rpmsg_wq,
 					&i2s_info->work_list[index].work);
-				i2s_info->work_write_index++;
-				i2s_info->work_write_index %= WORK_MAX_NUM;
-			} else
-				i2s_info->msg_drop_count[substream->stream]++;
-		}
+		i2s_info->work_index++;
+		i2s_info->work_index %= WORK_MAX_NUM;
 	}
 
 	return 0;
@@ -795,7 +704,7 @@ static int i2s_rpmsg_probe(struct rpmsg_device *rpdev)
 {
 	struct platform_device *codec_pdev;
 	struct fsl_rpmsg_i2s *rpmsg_i2s = NULL;
-	struct fsl_rpmsg_codec  rpmsg_codec[3];
+	struct fsl_rpmsg_codec  rpmsg_codec[2];
 	int ret;
 
 	if (!i2s_info_g)
@@ -844,22 +753,6 @@ static int i2s_rpmsg_probe(struct rpmsg_device *rpdev)
 			return ret;
 		}
 	}
-
-	if (rpmsg_i2s->codec_ak4497) {
-		rpmsg_codec[2].audioindex = rpmsg_i2s->codec_ak4497 >> 16;
-		codec_pdev = platform_device_register_data(
-					&rpmsg_i2s->pdev->dev,
-					RPMSG_CODEC_DRV_NAME_AK4497,
-					PLATFORM_DEVID_NONE,
-					&rpmsg_codec[2], sizeof(struct fsl_rpmsg_codec));
-		if (IS_ERR(codec_pdev)) {
-			dev_err(&rpdev->dev,
-				"failed to register rpmsg audio codec\n");
-			ret = PTR_ERR(codec_pdev);
-			return ret;
-		}
-	}
-
 	return 0;
 }
 

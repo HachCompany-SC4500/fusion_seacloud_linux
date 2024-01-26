@@ -135,7 +135,8 @@ struct vscsibk_pend {
 
 	struct se_cmd se_cmd;
 
-	struct completion tmr_done;
+	atomic_t tmr_complete;
+	wait_queue_head_t tmr_wait;
 };
 
 #define VSCSI_DEFAULT_SESSION_TAGS	128
@@ -599,7 +600,7 @@ static void scsiback_device_action(struct vscsibk_pend *pending_req,
 	u64 unpacked_lun = pending_req->v2p->lun;
 	int rc, err = FAILED;
 
-	init_completion(&pending_req->tmr_done);
+	init_waitqueue_head(&pending_req->tmr_wait);
 
 	rc = target_submit_tmr(&pending_req->se_cmd, nexus->tvn_se_sess,
 			       &pending_req->sense_buffer[0],
@@ -608,13 +609,14 @@ static void scsiback_device_action(struct vscsibk_pend *pending_req,
 	if (rc)
 		goto err;
 
-	wait_for_completion(&pending_req->tmr_done);
+	wait_event(pending_req->tmr_wait,
+		   atomic_read(&pending_req->tmr_complete));
 
 	err = (se_cmd->se_tmr_req->response == TMR_FUNCTION_COMPLETE) ?
 		SUCCESS : FAILED;
 
 	scsiback_do_resp_with_sense(NULL, err, 0, pending_req);
-	transport_generic_free_cmd(&pending_req->se_cmd, 0);
+	transport_generic_free_cmd(&pending_req->se_cmd, 1);
 	return;
 
 err:
@@ -1451,7 +1453,8 @@ static void scsiback_queue_tm_rsp(struct se_cmd *se_cmd)
 	struct vscsibk_pend *pending_req = container_of(se_cmd,
 				struct vscsibk_pend, se_cmd);
 
-	complete(&pending_req->tmr_done);
+	atomic_set(&pending_req->tmr_complete, 1);
+	wake_up(&pending_req->tmr_wait);
 }
 
 static void scsiback_aborted_task(struct se_cmd *se_cmd)

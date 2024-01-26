@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __LINUX_PWM_H
 #define __LINUX_PWM_H
 
@@ -449,6 +448,8 @@ struct pwm_device *devm_pwm_get(struct device *dev, const char *con_id);
 struct pwm_device *devm_of_pwm_get(struct device *dev, struct device_node *np,
 				   const char *con_id);
 void devm_pwm_put(struct device *dev, struct pwm_device *pwm);
+
+bool pwm_can_sleep(struct pwm_device *pwm);
 #else
 static inline struct pwm_device *pwm_request(int pwm_id, const char *label)
 {
@@ -562,6 +563,11 @@ static inline struct pwm_device *devm_of_pwm_get(struct device *dev,
 static inline void devm_pwm_put(struct device *dev, struct pwm_device *pwm)
 {
 }
+
+static inline bool pwm_can_sleep(struct pwm_device *pwm)
+{
+	return false;
+}
 #endif
 
 static inline void pwm_apply_args(struct pwm_device *pwm)
@@ -604,24 +610,17 @@ struct pwm_lookup {
 	const char *con_id;
 	unsigned int period;
 	enum pwm_polarity polarity;
-	const char *module; /* optional, may be NULL */
 };
 
-#define PWM_LOOKUP_WITH_MODULE(_provider, _index, _dev_id, _con_id,	\
-			       _period, _polarity, _module)		\
-	{								\
-		.provider = _provider,					\
-		.index = _index,					\
-		.dev_id = _dev_id,					\
-		.con_id = _con_id,					\
-		.period = _period,					\
-		.polarity = _polarity,					\
-		.module = _module,					\
-	}
-
 #define PWM_LOOKUP(_provider, _index, _dev_id, _con_id, _period, _polarity) \
-	PWM_LOOKUP_WITH_MODULE(_provider, _index, _dev_id, _con_id, _period, \
-			       _polarity, NULL)
+	{						\
+		.provider = _provider,			\
+		.index = _index,			\
+		.dev_id = _dev_id,			\
+		.con_id = _con_id,			\
+		.period = _period,			\
+		.polarity = _polarity			\
+	}
 
 #if IS_ENABLED(CONFIG_PWM)
 void pwm_add_table(struct pwm_lookup *table, size_t num);

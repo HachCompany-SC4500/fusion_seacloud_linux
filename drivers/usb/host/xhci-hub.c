@@ -398,24 +398,16 @@ static int xhci_stop_device(struct xhci_hcd *xhci, int slot_id, int suspend)
 	if (!virt_dev)
 		return -ENODEV;
 
-	trace_xhci_stop_device(virt_dev);
-
 	cmd = xhci_alloc_command(xhci, false, true, GFP_NOIO);
-	if (!cmd)
+	if (!cmd) {
+		xhci_dbg(xhci, "Couldn't allocate command structure.\n");
 		return -ENOMEM;
+	}
 
 	spin_lock_irqsave(&xhci->lock, flags);
 	for (i = LAST_EP_INDEX; i > 0; i--) {
 		if (virt_dev->eps[i].ring && virt_dev->eps[i].ring->dequeue) {
-			struct xhci_ep_ctx *ep_ctx;
 			struct xhci_command *command;
-
-			ep_ctx = xhci_get_ep_ctx(xhci, virt_dev->out_ctx, i);
-
-			/* Check ep is running, required by AMD SNPS 3.1 xHC */
-			if (GET_EP_CTX_STATE(ep_ctx) != EP_STATE_RUNNING)
-				continue;
-
 			command = xhci_alloc_command(xhci, false, false,
 						     GFP_NOWAIT);
 			if (!command) {
@@ -445,8 +437,7 @@ static int xhci_stop_device(struct xhci_hcd *xhci, int slot_id, int suspend)
 	/* Wait for last stop endpoint command to finish */
 	wait_for_completion(cmd->completion);
 
-	if (cmd->status == COMP_COMMAND_ABORTED ||
-	    cmd->status == COMP_COMMAND_RING_STOPPED) {
+	if (cmd->status == COMP_CMD_ABORT || cmd->status == COMP_CMD_STOP) {
 		xhci_warn(xhci, "Timeout while waiting for stop endpoint command\n");
 		ret = -ETIME;
 	}
@@ -634,10 +625,7 @@ static int xhci_enter_test_mode(struct xhci_hcd *xhci,
 	xhci_dbg(xhci, "Disable all slots\n");
 	spin_unlock_irqrestore(&xhci->lock, *flags);
 	for (i = 1; i <= HCS_MAX_SLOTS(xhci->hcs_params1); i++) {
-		if (!xhci->devs[i])
-			continue;
-
-		retval = xhci_disable_slot(xhci, i);
+		retval = xhci_disable_slot(xhci, NULL, i);
 		if (retval)
 			xhci_err(xhci, "Failed to disable slot %d, %d. Enter test mode anyway\n",
 				 i, retval);
@@ -1084,8 +1072,7 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 			goto error;
 		wIndex--;
 		temp = readl(port_array[wIndex]);
-		if (temp == ~(u32)0) {
-			xhci_hc_died(xhci);
+		if (temp == 0xffffffff) {
 			retval = -ENODEV;
 			break;
 		}
@@ -1127,8 +1114,7 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 			goto error;
 		wIndex--;
 		temp = readl(port_array[wIndex]);
-		if (temp == ~(u32)0) {
-			xhci_hc_died(xhci);
+		if (temp == 0xffffffff) {
 			retval = -ENODEV;
 			break;
 		}
@@ -1152,7 +1138,8 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 			temp = readl(port_array[wIndex]);
 			if ((temp & PORT_PE) == 0 || (temp & PORT_RESET)
 				|| (temp & PORT_PLS_MASK) >= XDEV_U3) {
-				xhci_warn(xhci, "USB core suspending device not in U0/U1/U2.\n");
+				xhci_warn(xhci, "USB core suspending device "
+					  "not in U0/U1/U2.\n");
 				goto error;
 			}
 
@@ -1198,39 +1185,6 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 			/* Put link in RxDetect (enable port) */
 			if (link_state == USB_SS_PORT_LS_RX_DETECT) {
 				xhci_dbg(xhci, "Enable port %d\n", wIndex);
-				xhci_set_link_state(xhci, port_array, wIndex,
-						link_state);
-				temp = readl(port_array[wIndex]);
-				break;
-			}
-
-			/*
-			 * For xHCI 1.1 according to section 4.19.1.2.4.1 a
-			 * root hub port's transition to compliance mode upon
-			 * detecting LFPS timeout may be controlled by an
-			 * Compliance Transition Enabled (CTE) flag (not
-			 * software visible). This flag is set by writing 0xA
-			 * to PORTSC PLS field which will allow transition to
-			 * compliance mode the next time LFPS timeout is
-			 * encountered. A warm reset will clear it.
-			 *
-			 * The CTE flag is only supported if the HCCPARAMS2 CTC
-			 * flag is set, otherwise, the compliance substate is
-			 * automatically entered as on 1.0 and prior.
-			 */
-			if (link_state == USB_SS_PORT_LS_COMP_MOD) {
-				if (!HCC2_CTC(xhci->hcc_params2)) {
-					xhci_dbg(xhci, "CTC flag is 0, port already supports entering compliance mode\n");
-					break;
-				}
-
-				if ((temp & PORT_CONNECT)) {
-					xhci_warn(xhci, "Can't set compliance mode when port is connected\n");
-					goto error;
-				}
-
-				xhci_dbg(xhci, "Enable compliance mode transition for port %d\n",
-						wIndex);
 				xhci_set_link_state(xhci, port_array, wIndex,
 						link_state);
 				temp = readl(port_array[wIndex]);
@@ -1346,8 +1300,7 @@ int xhci_hub_control(struct usb_hcd *hcd, u16 typeReq, u16 wValue,
 			goto error;
 		wIndex--;
 		temp = readl(port_array[wIndex]);
-		if (temp == ~(u32)0) {
-			xhci_hc_died(xhci);
+		if (temp == 0xffffffff) {
 			retval = -ENODEV;
 			break;
 		}
@@ -1458,8 +1411,7 @@ int xhci_hub_status_data(struct usb_hcd *hcd, char *buf)
 	/* For each port, did anything change?  If so, set that bit in buf. */
 	for (i = 0; i < max_ports; i++) {
 		temp = readl(port_array[i]);
-		if (temp == ~(u32)0) {
-			xhci_hc_died(xhci);
+		if (temp == 0xffffffff) {
 			retval = -ENODEV;
 			break;
 		}
@@ -1521,8 +1473,7 @@ int xhci_bus_suspend(struct usb_hcd *hcd)
 		portsc_buf[port_index] = 0;
 
 		/* Bail out if a USB3 port has a new device in link training */
-		if ((hcd->speed >= HCD_USB3) &&
-		    (t1 & PORT_PLS_MASK) == XDEV_POLLING) {
+		if ((t1 & PORT_PLS_MASK) == XDEV_POLLING) {
 			bus_state->bus_suspended = 0;
 			spin_unlock_irqrestore(&xhci->lock, flags);
 			xhci_dbg(xhci, "Bus suspend bailout, port in polling\n");
@@ -1553,13 +1504,6 @@ int xhci_bus_suspend(struct usb_hcd *hcd)
 			} else {
 				t2 |= PORT_WKOC_E | PORT_WKCONN_E;
 				t2 &= ~PORT_WKDISC_E;
-			}
-
-			if ((xhci->quirks & XHCI_U2_DISABLE_WAKE) &&
-			    (hcd->speed < HCD_USB3)) {
-				if (usb_amd_pt_check_port(hcd->self.controller,
-							  port_index))
-					t2 &= ~PORT_WAKE_BITS;
 			}
 		} else
 			t2 &= ~PORT_WAKE_BITS;
@@ -1592,7 +1536,6 @@ int xhci_bus_suspend(struct usb_hcd *hcd)
 	spin_unlock_irqrestore(&xhci->lock, flags);
 	return 0;
 }
-EXPORT_SYMBOL(xhci_bus_suspend);
 
 /*
  * Workaround for missing Cold Attach Status (CAS) if device re-plugged in S3.
@@ -1626,14 +1569,15 @@ static bool xhci_port_missing_cas_quirk(int port_index,
 int xhci_bus_resume(struct usb_hcd *hcd)
 {
 	struct xhci_hcd	*xhci = hcd_to_xhci(hcd);
-	struct xhci_bus_state *bus_state;
-	__le32 __iomem **port_array;
-	unsigned long flags;
 	int max_ports, port_index;
+	__le32 __iomem **port_array;
+	struct xhci_bus_state *bus_state;
+	u32 temp;
+	unsigned long flags;
+	unsigned long port_was_suspended = 0;
+	bool need_usb2_u3_exit = false;
 	int slot_id;
 	int sret;
-	u32 next_state;
-	u32 temp, portsc;
 
 	max_ports = xhci_get_ports(hcd, &port_array);
 	bus_state = &xhci->bus_state[hcd_index(hcd)];
@@ -1652,77 +1596,68 @@ int xhci_bus_resume(struct usb_hcd *hcd)
 	temp &= ~CMD_EIE;
 	writel(temp, &xhci->op_regs->command);
 
-	/* bus specific resume for ports we suspended at bus_suspend */
-	if (hcd->speed >= HCD_USB3)
-		next_state = XDEV_U0;
-	else
-		next_state = XDEV_RESUME;
-
 	port_index = max_ports;
 	while (port_index--) {
-		portsc = readl(port_array[port_index]);
+		/* Check whether need resume ports. If needed
+		   resume port and disable remote wakeup */
+		u32 temp;
+
+		temp = readl(port_array[port_index]);
 
 		/* warm reset CAS limited ports stuck in polling/compliance */
 		if ((xhci->quirks & XHCI_MISSING_CAS) &&
 		    (hcd->speed >= HCD_USB3) &&
 		    xhci_port_missing_cas_quirk(port_index, port_array)) {
 			xhci_dbg(xhci, "reset stuck port %d\n", port_index);
-			clear_bit(port_index, &bus_state->bus_suspended);
 			continue;
 		}
-		/* resume if we suspended the link, and it is still suspended */
-		if (test_bit(port_index, &bus_state->bus_suspended))
-			switch (portsc & PORT_PLS_MASK) {
-			case XDEV_U3:
-				portsc = xhci_port_state_to_neutral(portsc);
-				portsc &= ~PORT_PLS_MASK;
-				portsc |= PORT_LINK_STROBE | next_state;
-				break;
-			case XDEV_RESUME:
-				/* resume already initiated */
-				break;
-			default:
-				/* not in a resumeable state, ignore it */
-				clear_bit(port_index,
-					  &bus_state->bus_suspended);
-				break;
+		if (DEV_SUPERSPEED_ANY(temp))
+			temp &= ~(PORT_RWC_BITS | PORT_CEC | PORT_WAKE_BITS);
+		else
+			temp &= ~(PORT_RWC_BITS | PORT_WAKE_BITS);
+		if (test_bit(port_index, &bus_state->bus_suspended) &&
+		    (temp & PORT_PLS_MASK)) {
+			set_bit(port_index, &port_was_suspended);
+			if (!DEV_SUPERSPEED_ANY(temp)) {
+				xhci_set_link_state(xhci, port_array,
+						port_index, XDEV_RESUME);
+				need_usb2_u3_exit = true;
 			}
-		/* disable wake for all ports, write new link state if needed */
-		portsc &= ~(PORT_RWC_BITS | PORT_CEC | PORT_WAKE_BITS);
-		writel(portsc, port_array[port_index]);
+		} else
+			writel(temp, port_array[port_index]);
 	}
 
-	/* USB2 specific resume signaling delay and U0 link state transition */
-	if (hcd->speed < HCD_USB3) {
-		if (bus_state->bus_suspended) {
-			spin_unlock_irqrestore(&xhci->lock, flags);
-			msleep(USB_RESUME_TIMEOUT);
-			spin_lock_irqsave(&xhci->lock, flags);
-		}
-		for_each_set_bit(port_index, &bus_state->bus_suspended,
-				 BITS_PER_LONG) {
-			/* Clear PLC to poll it later for U0 transition */
-			xhci_test_and_clear_bit(xhci, port_array, port_index,
-						PORT_PLC);
-			xhci_set_link_state(xhci, port_array, port_index,
-					    XDEV_U0);
-		}
+	if (need_usb2_u3_exit) {
+		spin_unlock_irqrestore(&xhci->lock, flags);
+		msleep(USB_RESUME_TIMEOUT);
+		spin_lock_irqsave(&xhci->lock, flags);
 	}
 
-	/* poll for U0 link state complete, both USB2 and USB3 */
-	for_each_set_bit(port_index, &bus_state->bus_suspended, BITS_PER_LONG) {
+	port_index = max_ports;
+	while (port_index--) {
+		if (!(port_was_suspended & BIT(port_index)))
+			continue;
+		/* Clear PLC to poll it later after XDEV_U0 */
+		xhci_test_and_clear_bit(xhci, port_array, port_index, PORT_PLC);
+		xhci_set_link_state(xhci, port_array, port_index, XDEV_U0);
+	}
+
+	port_index = max_ports;
+	while (port_index--) {
+		if (!(port_was_suspended & BIT(port_index)))
+			continue;
+		/* Poll and Clear PLC */
 		sret = xhci_handshake(port_array[port_index], PORT_PLC,
 				      PORT_PLC, 10 * 1000);
-		if (sret) {
+		if (sret)
 			xhci_warn(xhci, "port %d resume PLC timeout\n",
 				  port_index);
-			continue;
-		}
 		xhci_test_and_clear_bit(xhci, port_array, port_index, PORT_PLC);
 		slot_id = xhci_find_slot_id_by_port(hcd, xhci, port_index + 1);
 		if (slot_id)
 			xhci_ring_device(xhci, slot_id);
 	}
+
 	(void) readl(&xhci->op_regs->command);
 
 	bus_state->next_statechange = jiffies + msecs_to_jiffies(5);

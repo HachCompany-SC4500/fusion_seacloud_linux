@@ -52,9 +52,8 @@
 #include <net/udplite.h>
 #include <net/xfrm.h>
 #include <net/compat.h>
-#include <net/seg6.h>
 
-#include <linux/uaccess.h>
+#include <asm/uaccess.h>
 
 struct ip6_ra_chain *ip6_ra_chain;
 DEFINE_RWLOCK(ip6_ra_lock);
@@ -242,6 +241,7 @@ static int do_ipv6_setsockopt(struct sock *sk, int level, int optname,
 			pktopt = xchg(&np->pktoptions, NULL);
 			kfree_skb(pktopt);
 
+			sk->sk_destruct = inet_sock_destruct;
 			/*
 			 * ... and add it to the refcnt debug socks count
 			 * in the new family. -acme
@@ -441,15 +441,6 @@ static int do_ipv6_setsockopt(struct sock *sk, int level, int optname,
 
 				break;
 #endif
-			case IPV6_SRCRT_TYPE_4:
-			{
-				struct ipv6_sr_hdr *srh = (struct ipv6_sr_hdr *)
-							  opt->srcrt;
-
-				if (!seg6_validate_srh(srh, optlen))
-					goto sticky_done;
-				break;
-			}
 			default:
 				goto sticky_done;
 			}
@@ -515,7 +506,7 @@ sticky_done:
 			break;
 
 		memset(opt, 0, sizeof(*opt));
-		refcount_set(&opt->refcnt, 1);
+		atomic_set(&opt->refcnt, 1);
 		opt->tot_len = sizeof(*opt) + optlen;
 		retv = -EFAULT;
 		if (copy_from_user(opt+1, optval, optlen))
@@ -745,9 +736,14 @@ done:
 			retv = -ENOBUFS;
 			break;
 		}
-		gsf = memdup_user(optval, optlen);
-		if (IS_ERR(gsf)) {
-			retv = PTR_ERR(gsf);
+		gsf = kmalloc(optlen, GFP_KERNEL);
+		if (!gsf) {
+			retv = -ENOBUFS;
+			break;
+		}
+		retv = -EFAULT;
+		if (copy_from_user(gsf, optval, optlen)) {
+			kfree(gsf);
 			break;
 		}
 		/* numsrc >= (4G-140)/128 overflow in 32 bits */
@@ -890,10 +886,6 @@ pref_skip_coa:
 	case IPV6_AUTOFLOWLABEL:
 		np->autoflowlabel = valbool;
 		np->autoflowlabel_set = 1;
-		retv = 0;
-		break;
-	case IPV6_RECVFRAGSIZE:
-		np->rxopt.bits.recvfragsize = valbool;
 		retv = 0;
 		break;
 	}
@@ -1329,10 +1321,6 @@ static int do_ipv6_getsockopt(struct sock *sk, int level, int optname,
 
 	case IPV6_AUTOFLOWLABEL:
 		val = ip6_autoflowlabel(sock_net(sk), np);
-		break;
-
-	case IPV6_RECVFRAGSIZE:
-		val = np->rxopt.bits.recvfragsize;
 		break;
 
 	default:

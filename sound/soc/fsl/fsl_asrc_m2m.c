@@ -159,9 +159,6 @@ static int fsl_asrc_dmaconfig(struct fsl_asrc_pair *pair, struct dma_chan *chan,
 	int ret, i;
 
 	switch (word_width) {
-	case ASRC_WIDTH_8_BIT:
-		buswidth = DMA_SLAVE_BUSWIDTH_1_BYTE;
-		break;
 	case ASRC_WIDTH_16_BIT:
 		buswidth = DMA_SLAVE_BUSWIDTH_2_BYTES;
 		break;
@@ -186,11 +183,8 @@ static int fsl_asrc_dmaconfig(struct fsl_asrc_pair *pair, struct dma_chan *chan,
 		slave_config.direction = DMA_DEV_TO_MEM;
 		slave_config.src_addr = dma_addr;
 		slave_config.src_addr_width = buswidth;
-		if (asrc_priv->dma_type == DMA_SDMA)
-			slave_config.src_maxburst =
-				m2m->watermark[OUT] * pair->channels;
-		else
-			slave_config.src_maxburst = 1;
+		slave_config.src_maxburst =
+			m2m->watermark[OUT] * pair->channels;
 	}
 
 	ret = dmaengine_slave_config(chan, &slave_config);
@@ -270,20 +264,10 @@ static int fsl_asrc_prepare_io_buffer(struct fsl_asrc_pair *pair,
 		buf_len = pbuf->output_buffer_length;
 	}
 
-	switch (width) {
-	case ASRC_WIDTH_24_BIT:
+	if (width == ASRC_WIDTH_24_BIT)
 		word_size = 4;
-		break;
-	case ASRC_WIDTH_16_BIT:
+	else
 		word_size = 2;
-		break;
-	case ASRC_WIDTH_8_BIT:
-		word_size = 1;
-		break;
-	default:
-		pair_err("wrong word length\n");
-		return -EINVAL;
-	}
 
 	if (buf_len < word_size * pair->channels * wm ||
 	    buf_len > ASRC_DMA_BUFFER_SIZE ||
@@ -345,7 +329,7 @@ int fsl_asrc_process_buffer_pre(struct completion *complete,
 		return -ETIME;
 	} else if (signal_pending(current)) {
 		pr_err("%sput task forcibly aborted\n", DIR_STR(dir));
-		return -ERESTARTSYS;
+		return -EBUSY;
 	}
 
 	return 0;
@@ -739,8 +723,7 @@ static long fsl_asrc_ioctl_convert(struct fsl_asrc_pair *pair,
 
 	ret = fsl_asrc_process_buffer(pair, &buf);
 	if (ret) {
-		if (ret != -ERESTARTSYS)
-			pair_err("failed to process buffer: %ld\n", ret);
+		pair_err("failed to process buffer: %ld\n", ret);
 		return ret;
 	}
 
@@ -1034,31 +1017,6 @@ static void fsl_asrc_m2m_suspend(struct fsl_asrc *asrc_priv)
 				dmaengine_terminate_all(pair->dma_chan[OUT]);
 			fsl_asrc_output_dma_callback((void *)pair);
 		}
-
-		spin_unlock_irqrestore(&asrc_priv->lock, lock_flags);
-	}
-}
-
-static void fsl_asrc_m2m_resume(struct fsl_asrc *asrc_priv)
-{
-	struct fsl_asrc_pair *pair;
-	struct fsl_asrc_m2m *m2m;
-	unsigned long lock_flags;
-	enum asrc_pair_index index;
-	int i, j;
-
-	for (i = 0; i < ASRC_PAIR_MAX_NUM; i++) {
-		spin_lock_irqsave(&asrc_priv->lock, lock_flags);
-		pair = asrc_priv->pair[i];
-		if (!pair || !pair->private) {
-			spin_unlock_irqrestore(&asrc_priv->lock, lock_flags);
-			continue;
-		}
-		m2m = pair->private;
-		index = pair->index;
-
-		for (j = 0; j < pair->channels * 4; j++)
-			regmap_write(asrc_priv->regmap, REG_ASRDI(index), 0);
 
 		spin_unlock_irqrestore(&asrc_priv->lock, lock_flags);
 	}

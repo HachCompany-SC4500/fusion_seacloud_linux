@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Transactional memory support routines to reclaim and recheckpoint
  * transactional process state.
@@ -328,8 +327,8 @@ dont_backup_fp:
 	blr
 
 
-	/* void __tm_recheckpoint(struct thread_struct *thread,
-	 *			  unsigned long orig_msr)
+	/* void tm_recheckpoint(struct thread_struct *thread,
+	 *			unsigned long orig_msr)
 	 *	- Restore the checkpointed register state saved by tm_reclaim
 	 *	  when we switch_to a process.
 	 *

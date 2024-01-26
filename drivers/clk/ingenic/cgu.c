@@ -2,7 +2,7 @@
  * Ingenic SoC CGU driver
  *
  * Copyright (c) 2013-2015 Imagination Technologies
- * Author: Paul Burton <paul.burton@mips.com>
+ * Author: Paul Burton <paul.burton@imgtec.com>
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License as
@@ -364,16 +364,16 @@ ingenic_clk_round_rate(struct clk_hw *hw, unsigned long req_rate,
 	struct ingenic_clk *ingenic_clk = to_ingenic_clk(hw);
 	struct ingenic_cgu *cgu = ingenic_clk->cgu;
 	const struct ingenic_cgu_clk_info *clk_info;
-	unsigned int div = 1;
+	long rate = *parent_rate;
 
 	clk_info = &cgu->clock_info[ingenic_clk->idx];
 
 	if (clk_info->type & CGU_CLK_DIV)
-		div = ingenic_clk_calc_div(clk_info, *parent_rate, req_rate);
+		rate /= ingenic_clk_calc_div(clk_info, *parent_rate, req_rate);
 	else if (clk_info->type & CGU_CLK_FIXDIV)
-		div = clk_info->fixdiv.div;
+		rate /= clk_info->fixdiv.div;
 
-	return DIV_ROUND_UP(*parent_rate, div);
+	return rate;
 }
 
 static int
@@ -393,7 +393,7 @@ ingenic_clk_set_rate(struct clk_hw *hw, unsigned long req_rate,
 
 	if (clk_info->type & CGU_CLK_DIV) {
 		div = ingenic_clk_calc_div(clk_info, parent_rate, req_rate);
-		rate = DIV_ROUND_UP(parent_rate, div);
+		rate = parent_rate / div;
 
 		if (rate != req_rate)
 			return -EINVAL;

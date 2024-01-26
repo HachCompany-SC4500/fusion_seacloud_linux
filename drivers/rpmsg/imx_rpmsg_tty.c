@@ -143,6 +143,7 @@ static const struct tty_operations imxrpmsgtty_ops = {
 static int rpmsg_tty_probe(struct rpmsg_device *rpdev)
 {
 	int ret;
+	char name[80];
 	struct rpmsgtty_port *cport;
 	struct tty_driver *rpmsgtty_driver;
 
@@ -160,7 +161,8 @@ static int rpmsg_tty_probe(struct rpmsg_device *rpdev)
 	}
 
 	rpmsgtty_driver->driver_name = "rpmsg_tty";
-	rpmsgtty_driver->name = kasprintf(GFP_KERNEL, "ttyRPMSG%d", rpdev->dst);
+	sprintf(name, "ttyRPMSG%d", rpdev->dst);
+	rpmsgtty_driver->name = name;
 	rpmsgtty_driver->major = UNNAMED_MAJOR;
 	rpmsgtty_driver->minor_start = 0;
 	rpmsgtty_driver->type = TTY_DRIVER_TYPE_CONSOLE;
@@ -218,7 +220,6 @@ static void rpmsg_tty_remove(struct rpmsg_device *rpdev)
 	dev_info(&rpdev->dev, "rpmsg tty driver is removed\n");
 
 	tty_unregister_driver(cport->rpmsgtty_driver);
-	kfree(cport->rpmsgtty_driver->name);
 	put_tty_driver(cport->rpmsgtty_driver);
 	tty_port_destroy(&cport->port);
 	cport->rpmsgtty_driver = NULL;

@@ -76,9 +76,9 @@ MODULE_LICENSE("Dual MIT/GPL");
 #define USE_MSI     1
 #endif
 
-static struct class* gpuClass = NULL;
+static struct class* gpuClass;
 
-static gcsPLATFORM *platform = NULL;
+static gcsPLATFORM *platform;
 
 static gckGALDEVICE galDevice;
 
@@ -388,7 +388,6 @@ static int drv_open(
 
     data->device             = galDevice;
     data->pidOpen            = _GetProcessID();
-    data->isLocked           = gcvFALSE;
 
     /* Attached the process. */
     for (i = 0; i < gcdMAX_GPU_COUNT; i++)
@@ -474,13 +473,6 @@ static int drv_release(
             );
 
         gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
-    }
-
-    if (data->isLocked)
-    {
-        /* Release the mutex. */
-        gcmkONERROR(gckOS_ReleaseMutex(gcvNULL, device->device->commitMutex));
-        data->isLocked = gcvFALSE;
     }
 
     /* A process gets detached. */
@@ -616,18 +608,6 @@ static long drv_ioctl(
             );
 
         gcmkONERROR(gcvSTATUS_INVALID_ARGUMENT);
-    }
-
-    if (iface.command == gcvHAL_DEVICE_MUTEX)
-    {
-        if (iface.u.DeviceMutex.isMutexLocked == gcvTRUE)
-        {
-            data->isLocked = gcvTRUE;
-        }
-        else
-        {
-            data->isLocked = gcvFALSE;
-        }
     }
 
     status = gckDEVICE_Dispatch(device->device, &iface);
@@ -890,8 +870,6 @@ int viv_drm_probe(struct device *dev);
 int viv_drm_remove(struct device *dev);
 #endif
 
-struct device *galcore_device = NULL;
-
 #if USE_LINUX_PCIE
 static int gpu_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 #else /* USE_LINUX_PCIE */
@@ -903,12 +881,6 @@ static int gpu_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
 #endif /* USE_LINUX_PCIE */
 {
     int ret = -ENODEV;
-#if LINUX_VERSION_CODE >= KERNEL_VERSION(2, 6, 24)
-    static u64 dma_mask = DMA_BIT_MASK(40);
-#else
-    static u64 dma_mask = DMA_40BIT_MASK;
-#endif
-
     gcsMODULE_PARAMETERS moduleParam = {
         .irqLine            = irqLine,
         .registerMemBase    = registerMemBase,
@@ -946,14 +918,12 @@ static int gpu_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
     memcpy(moduleParam.chipIDs, chipIDs, gcmSIZEOF(gctUINT) * gcvCORE_COUNT);
     moduleParam.compression = compression;
     platform->device = pdev;
-    galcore_device = &pdev->dev;
-
 #if USE_LINUX_PCIE
     if (pci_enable_device(pdev)) {
         printk(KERN_ERR "galcore: pci_enable_device() failed.\n");
     }
 
-    if (pci_set_dma_mask(pdev, dma_mask)) {
+    if (pci_set_dma_mask(pdev, DMA_BIT_MASK(32))) {
         printk(KERN_ERR "galcore: Failed to set DMA mask.\n");
     }
 
@@ -967,9 +937,7 @@ static int gpu_probe(struct pci_dev *pdev, const struct pci_device_id *ent)
     if (pci_enable_msi(pdev)) {
         printk(KERN_ERR "galcore: Failed to enable MSI.\n");
     }
-#  endif
-#else
-    galcore_device->dma_mask = &dma_mask;
+#endif
 #endif
 
     if (platform->ops->getPower)
@@ -1050,8 +1018,6 @@ static void gpu_remove(struct pci_dev *pdev)
     gcmkFOOTER_NO();
     return;
 #else
-    galcore_device->dma_mask = NULL;
-    galcore_device = NULL;
     gcmkFOOTER_NO();
     return 0;
 #endif

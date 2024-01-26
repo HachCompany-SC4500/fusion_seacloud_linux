@@ -1,4 +1,3 @@
-/* SPDX-License-Identifier: GPL-2.0 */
 /*
  * Copyright 2001-2002 Pavel Machek <pavel@suse.cz>
  * Based on code
@@ -12,13 +11,7 @@
 
 /* image of the saved processor state */
 struct saved_context {
-	/*
-	 * On x86_32, all segment registers, with the possible exception of
-	 * gs, are saved at kernel entry in pt_regs.
-	 */
-#ifdef CONFIG_X86_32_LAZY_GS
-	u16 gs;
-#endif
+	u16 es, fs, gs, ss;
 	unsigned long cr0, cr2, cr3, cr4;
 	u64 misc_enable;
 	bool misc_enable_saved;

@@ -22,9 +22,6 @@
  * VDM object is minimum of VDM header + 6 additional data objects.
  */
 
-#define VDO_MAX_OBJECTS		6
-#define VDO_MAX_SIZE		(VDO_MAX_OBJECTS + 1)
-
 /*
  * VDM header
  * ----------
@@ -37,6 +34,7 @@
  * <5>      :: reserved (SVDM), command type (UVDM)
  * <4:0>    :: command
  */
+#define VDO_MAX_SIZE 7
 #define VDO(vid, type, custom)				\
 	(((vid) << 16) |				\
 	 ((type) << 15) |				\

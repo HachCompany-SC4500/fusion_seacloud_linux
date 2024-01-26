@@ -53,10 +53,9 @@
 
 static CDN_API_STATUS infoframeSet(state_struct *state, u8 entry_id,
 				   u8 packet_len,
-				   u8 *packet, u8 packet_type, u8 active_idle)
+				   u32 *packet, u8 packet_type, u8 active_idle)
 {
 	u32 idx;
-	u32 *packet32, len;
 	u32 activeIdleBit = (0 == active_idle) ? 0 : 0x20000;
 
 	/* invalidate entry */
@@ -79,13 +78,11 @@ static CDN_API_STATUS infoframeSet(state_struct *state, u8 entry_id,
 		return CDN_ERR;
 
 	/* write packet into memory */
-	packet32 = (u32 *)packet;
-	len = packet_len / 4;
-	for (idx = 0; idx < len; idx++)
+	for (idx = 0; idx < packet_len; idx++)
 		if (cdn_apb_write
 		    (state,
 		     BANK_OFFSET | ADDR_SOURCE_PIF | (SOURCE_PIF_DATA_WR << 2),
-		     F_DATA_WR(packet32[idx])))
+		     F_DATA_WR(packet[idx])))
 			return CDN_ERR;
 
 	/* write entry id */
@@ -117,7 +114,7 @@ static CDN_API_STATUS infoframeSet(state_struct *state, u8 entry_id,
 }
 
 CDN_API_STATUS CDN_API_InfoframeSet(state_struct *state, u8 entry_id,
-				    u8 packet_len, u8 *packet, u8 packet_type)
+				    u8 packet_len, u32 *packet, u8 packet_type)
 {
 	return infoframeSet(state, entry_id, packet_len, packet, packet_type,
 			    1);
@@ -125,7 +122,7 @@ CDN_API_STATUS CDN_API_InfoframeSet(state_struct *state, u8 entry_id,
 
 CDN_API_STATUS CDN_API_InfoframeSetNoActiveIdle(state_struct *state,
 						u8 entry_id, u8 packet_len,
-						u8 *packet, u8 packet_type)
+						u32 *packet, u8 packet_type)
 {
 	return infoframeSet(state, entry_id, packet_len, packet, packet_type,
 			    0);

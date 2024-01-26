@@ -260,8 +260,6 @@ int dcss_ctxld_init(struct dcss_soc *dcss, unsigned long ctxld_base)
 	dcss->ctxld_priv = priv;
 	priv->dcss = dcss;
 
-	spin_lock_init(&priv->lock);
-
 	ret = dcss_ctxld_alloc_ctx(priv);
 	if (ret) {
 		dev_err(dcss->dev, "ctxld: cannot allocate context memory.\n");
@@ -384,7 +382,7 @@ void dcss_ctxld_kick(struct dcss_soc *dcss)
 	dcss_trace_module(TRACE_CTXLD, TRACE_KICK);
 
 	spin_lock_irqsave(&ctxld->lock, flags);
-	if (ctxld->armed && !ctxld->in_use) {
+	if (ctxld->armed) {
 		ctxld->armed = false;
 		__dcss_ctxld_enable(dcss->ctxld_priv);
 	}
@@ -452,8 +450,6 @@ int dcss_ctxld_suspend(struct dcss_soc *dcss)
 	struct dcss_ctxld_priv *ctxld = dcss->ctxld_priv;
 	int wait_time_ms = 0;
 	unsigned long flags;
-
-	dcss_ctxld_kick(dcss);
 
 	while (ctxld->in_use && wait_time_ms < 500) {
 		msleep(20);

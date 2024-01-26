@@ -568,11 +568,11 @@
 };
 
 &usbphy1 {
-	fsl,tx-d-cal = <106>;
+	tx-d-cal = <0x5>;
 };
 
 &usbphy2 {
-	fsl,tx-d-cal = <106>;
+	tx-d-cal = <0x5>;
 };
 
 &usdhc2 {

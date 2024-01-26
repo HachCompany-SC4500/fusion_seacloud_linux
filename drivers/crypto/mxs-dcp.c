@@ -310,12 +310,6 @@ static int mxs_dcp_aes_block_crypt(struct crypto_async_request *arq)
 
 	actx->fill = 0;
 
-	/*
-	 * We are not supporting the case where there is no message to encrypt
-	 */
-	if (nents == 0)
-		return -EINVAL;
-
 	/* Copy the key from the temporary location. */
 	memcpy(key, actx->key, actx->key_len);
 
@@ -387,15 +381,9 @@ static int mxs_dcp_aes_block_crypt(struct crypto_async_request *arq)
 		if (limit_hit)
 			break;
 	}
-
-	/* Copy the IV for CBC for chaining */
-	if (!rctx->ecb) {
-		if (rctx->enc)
-			memcpy(req->info, out_buf+(last_out_len-AES_BLOCK_SIZE),
-				AES_BLOCK_SIZE);
-		else
-			memcpy(req->info, in_buf+(last_out_len-AES_BLOCK_SIZE),
-				AES_BLOCK_SIZE);
+	if (last_out_len >= AES_BLOCK_SIZE) {
+		memcpy(req->info, out_buf+(last_out_len-AES_BLOCK_SIZE),
+		       AES_BLOCK_SIZE);
 	}
 
 	return ret;
@@ -1024,16 +1012,12 @@ static int mxs_dcp_probe(struct platform_device *pdev)
 
 	iores = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	dcp_vmi_irq = platform_get_irq(pdev, 0);
-	if (dcp_vmi_irq < 0) {
-		dev_err(dev, "Failed to get IRQ: (%d)!\n", dcp_vmi_irq);
+	if (dcp_vmi_irq < 0)
 		return dcp_vmi_irq;
-	}
 
 	dcp_irq = platform_get_irq(pdev, 1);
-	if (dcp_irq < 0) {
-		dev_err(dev, "Failed to get IRQ: (%d)!\n", dcp_irq);
+	if (dcp_irq < 0)
 		return dcp_irq;
-	}
 
 	sdcp = devm_kzalloc(dev, sizeof(*sdcp), GFP_KERNEL);
 	if (!sdcp)

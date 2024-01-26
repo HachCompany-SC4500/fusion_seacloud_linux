@@ -84,8 +84,10 @@ bool ocrdma_alloc_stats_resources(struct ocrdma_dev *dev)
 
 	/* Alloc debugfs mem */
 	mem->debugfs_mem = kzalloc(OCRDMA_MAX_DBGFS_MEM, GFP_KERNEL);
-	if (!mem->debugfs_mem)
+	if (!mem->debugfs_mem) {
+		pr_err("%s: stats debugfs mem allocation failed\n", __func__);
 		return false;
+	}
 
 	return true;
 }

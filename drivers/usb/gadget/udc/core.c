@@ -23,7 +23,6 @@
 #include <linux/list.h>
 #include <linux/err.h>
 #include <linux/dma-mapping.h>
-#include <linux/sched/task_stack.h>
 #include <linux/workqueue.h>
 
 #include <linux/usb/ch9.h>
@@ -800,14 +799,6 @@ int usb_gadget_map_request_by_dev(struct device *dev,
 
 		req->num_mapped_sgs = mapped;
 	} else {
-		if (is_vmalloc_addr(req->buf)) {
-			dev_err(dev, "buffer is not dma capable\n");
-			return -EFAULT;
-		} else if (object_is_on_stack(req->buf)) {
-			dev_err(dev, "buffer is on stack\n");
-			return -EFAULT;
-		}
-
 		req->dma = dma_map_single(dev, req->buf, req->length,
 				is_in ? DMA_TO_DEVICE : DMA_FROM_DEVICE);
 
@@ -815,8 +806,6 @@ int usb_gadget_map_request_by_dev(struct device *dev,
 			dev_err(dev, "failed to map buffer\n");
 			return -EFAULT;
 		}
-
-		req->dma_mapped = 1;
 	}
 
 	return 0;
@@ -841,10 +830,9 @@ void usb_gadget_unmap_request_by_dev(struct device *dev,
 				is_in ? DMA_TO_DEVICE : DMA_FROM_DEVICE);
 
 		req->num_mapped_sgs = 0;
-	} else if (req->dma_mapped) {
+	} else {
 		dma_unmap_single(dev, req->dma, req->length,
 				is_in ? DMA_TO_DEVICE : DMA_FROM_DEVICE);
-		req->dma_mapped = 0;
 	}
 }
 EXPORT_SYMBOL_GPL(usb_gadget_unmap_request_by_dev);
@@ -1071,27 +1059,6 @@ static inline void usb_gadget_udc_stop(struct usb_udc *udc)
 }
 
 /**
- * usb_gadget_udc_set_speed - tells usb device controller speed supported by
- *    current driver
- * @udc: The device we want to set maximum speed
- * @speed: The maximum speed to allowed to run
- *
- * This call is issued by the UDC Class driver before calling
- * usb_gadget_udc_start() in order to make sure that we don't try to
- * connect on speeds the gadget driver doesn't support.
- */
-static inline void usb_gadget_udc_set_speed(struct usb_udc *udc,
-					    enum usb_device_speed speed)
-{
-	if (udc->gadget->ops->udc_set_speed) {
-		enum usb_device_speed s;
-
-		s = min(speed, udc->gadget->max_speed);
-		udc->gadget->ops->udc_set_speed(udc->gadget, s);
-	}
-}
-
-/**
  * usb_udc_release - release the usb_udc struct
  * @dev: the dev member within usb_udc
  *
@@ -1140,13 +1107,16 @@ static int check_pending_gadget_drivers(struct usb_udc *udc)
  * @release: a gadget release function.
  *
  * Returns zero on success, negative errno otherwise.
- * Calls the gadget release function in the latter case.
  */
 int usb_add_gadget_udc_release(struct device *parent, struct usb_gadget *gadget,
 		void (*release)(struct device *dev))
 {
 	struct usb_udc		*udc;
 	int			ret = -ENOMEM;
+
+	udc = kzalloc(sizeof(*udc), GFP_KERNEL);
+	if (!udc)
+		goto err1;
 
 	dev_set_name(&gadget->dev, "gadget");
 	INIT_WORK(&gadget->work, usb_gadget_state_work);
@@ -1157,11 +1127,9 @@ int usb_add_gadget_udc_release(struct device *parent, struct usb_gadget *gadget,
 	else
 		gadget->dev.release = usb_udc_nop_release;
 
-	device_initialize(&gadget->dev);
-
-	udc = kzalloc(sizeof(*udc), GFP_KERNEL);
-	if (!udc)
-		goto err_put_gadget;
+	ret = device_register(&gadget->dev);
+	if (ret)
+		goto err2;
 
 	device_initialize(&udc->dev);
 	udc->dev.release = usb_udc_release;
@@ -1170,11 +1138,7 @@ int usb_add_gadget_udc_release(struct device *parent, struct usb_gadget *gadget,
 	udc->dev.parent = parent;
 	ret = dev_set_name(&udc->dev, "%s", kobject_name(&parent->kobj));
 	if (ret)
-		goto err_put_udc;
-
-	ret = device_add(&gadget->dev);
-	if (ret)
-		goto err_put_udc;
+		goto err3;
 
 	udc->gadget = gadget;
 	gadget->udc = udc;
@@ -1184,7 +1148,7 @@ int usb_add_gadget_udc_release(struct device *parent, struct usb_gadget *gadget,
 
 	ret = device_add(&udc->dev);
 	if (ret)
-		goto err_unlist_udc;
+		goto err4;
 
 	usb_gadget_set_state(gadget, USB_STATE_NOTATTACHED);
 	udc->vbus = true;
@@ -1192,26 +1156,28 @@ int usb_add_gadget_udc_release(struct device *parent, struct usb_gadget *gadget,
 	/* pick up one of pending gadget drivers */
 	ret = check_pending_gadget_drivers(udc);
 	if (ret)
-		goto err_del_udc;
+		goto err5;
 
 	mutex_unlock(&udc_lock);
 
 	return 0;
 
- err_del_udc:
+err5:
 	device_del(&udc->dev);
 
- err_unlist_udc:
+err4:
 	list_del(&udc->list);
 	mutex_unlock(&udc_lock);
 
+err3:
+	put_device(&udc->dev);
 	device_del(&gadget->dev);
 
- err_put_udc:
-	put_device(&udc->dev);
-
- err_put_gadget:
+err2:
 	put_device(&gadget->dev);
+	kfree(udc);
+
+err1:
 	return ret;
 }
 EXPORT_SYMBOL_GPL(usb_add_gadget_udc_release);
@@ -1324,8 +1290,6 @@ static int udc_bind_to_driver(struct usb_udc *udc, struct usb_gadget_driver *dri
 	udc->driver = driver;
 	udc->dev.driver = &driver->driver;
 	udc->gadget->dev.driver = &driver->driver;
-
-	usb_gadget_udc_set_speed(udc, driver->max_speed);
 
 	ret = driver->bind(udc->gadget, driver);
 	if (ret)
@@ -1479,18 +1443,6 @@ static ssize_t state_show(struct device *dev, struct device_attribute *attr,
 }
 static DEVICE_ATTR_RO(state);
 
-static ssize_t function_show(struct device *dev, struct device_attribute *attr,
-			     char *buf)
-{
-	struct usb_udc		*udc = container_of(dev, struct usb_udc, dev);
-	struct usb_gadget_driver *drv = udc->driver;
-
-	if (!drv || !drv->function)
-		return 0;
-	return scnprintf(buf, PAGE_SIZE, "%s\n", drv->function);
-}
-static DEVICE_ATTR_RO(function);
-
 #define USB_UDC_SPEED_ATTR(name, param)					\
 ssize_t name##_show(struct device *dev,					\
 		struct device_attribute *attr, char *buf)		\
@@ -1526,7 +1478,6 @@ static struct attribute *usb_udc_attrs[] = {
 	&dev_attr_srp.attr,
 	&dev_attr_soft_connect.attr,
 	&dev_attr_state.attr,
-	&dev_attr_function.attr,
 	&dev_attr_current_speed.attr,
 	&dev_attr_maximum_speed.attr,
 

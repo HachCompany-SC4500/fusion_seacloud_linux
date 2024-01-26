@@ -157,8 +157,7 @@ err_out:
 /**
  * ima_get_action - appraise & measure decision based on policy.
  * @inode: pointer to inode to measure
- * @mask: contains the permission mask (MAY_READ, MAY_WRITE, MAY_EXEC,
- *        MAY_APPEND)
+ * @mask: contains the permission mask (MAY_READ, MAY_WRITE, MAY_EXECUTE)
  * @func: caller identifier
  * @pcr: pointer filled in if matched measure policy sets pcr=
  *

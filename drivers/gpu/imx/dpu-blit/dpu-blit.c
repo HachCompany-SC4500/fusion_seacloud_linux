@@ -42,7 +42,7 @@ static void dpu_cs_wait_fifo_space(struct dpu_bliteng *dpu_be)
 {
 	while ((dpu_be_read(dpu_be, CMDSEQ_STATUS) &
 		CMDSEQ_STATUS_FIFOSPACE_MASK) < CMDSEQ_FIFO_SPACE_THRESHOLD)
-		usleep_range(30, 50);
+		usleep_range(1000, 2000);
 }
 
 static void dpu_cs_wait_idle(struct dpu_bliteng *dpu_be)
@@ -108,7 +108,6 @@ void dpu_be_configure_prefetch(struct dpu_bliteng *dpu_be,
 			       u64 baddr, u64 uv_addr)
 {
 	struct dprc *dprc;
-	bool dprc_en=false;
 
 	/* Enable DPR, dprc1 is connected to plane0 */
 	dprc = dpu_be->dprc[1];
@@ -122,22 +121,19 @@ void dpu_be_configure_prefetch(struct dpu_bliteng *dpu_be,
 		dpu_be_wait(dpu_be);
 	}
 
-	dpu_be->sync = true;
-
 	if (baddr == 0x0) {
 		if (!dpu_be->start) {
 			dprc_disable(dprc);
-			dpu_be->start = true;
+			dpu_be->handle_start = false;
 		}
+		dpu_be->start = true;
 		return;
 	}
 
-	if (dpu_be->modifier != modifier && !dpu_be->start) {
-		dprc_disable(dprc);
-		dprc_en = true;
+	if (dpu_be->handle_start) {
+		dprc_first_frame_handle(dprc);
+		dpu_be->handle_start = false;
 	}
-
-	dpu_be->modifier = modifier;
 
 	dprc_configure(dprc, 0,
 		       width, height,
@@ -148,8 +144,9 @@ void dpu_be_configure_prefetch(struct dpu_bliteng *dpu_be,
 		       dpu_be->start,
 		       false);
 
-	if (dpu_be->start || dprc_en) {
+	if (dpu_be->start) {
 		dprc_enable(dprc);
+		dpu_be->handle_start = true;
 	}
 
 	dprc_reg_update(dprc);
@@ -199,6 +196,13 @@ EXPORT_SYMBOL(dpu_bliteng_set_dev);
 int dpu_be_get(struct dpu_bliteng *dpu_be)
 {
 	mutex_lock(&dpu_be->mutex);
+	if (dpu_be->inuse) {
+		mutex_unlock(&dpu_be->mutex);
+		return -EBUSY;
+	}
+
+	dpu_be->inuse = true;
+	mutex_unlock(&dpu_be->mutex);
 
 	return 0;
 }
@@ -206,6 +210,10 @@ EXPORT_SYMBOL(dpu_be_get);
 
 void dpu_be_put(struct dpu_bliteng *dpu_be)
 {
+	mutex_lock(&dpu_be->mutex);
+
+	dpu_be->inuse = false;
+
 	mutex_unlock(&dpu_be->mutex);
 }
 EXPORT_SYMBOL(dpu_be_put);
@@ -233,8 +241,6 @@ EXPORT_SYMBOL(dpu_be_blit);
 #define STORE9_SEQCOMPLETE_IRQ_MASK	(1U<<STORE9_SEQCOMPLETE_IRQ)
 void dpu_be_wait(struct dpu_bliteng *dpu_be)
 {
-	if (!dpu_be->sync) return;
-
 	dpu_cs_wait_fifo_space(dpu_be);
 
 	dpu_be_write(dpu_be, 0x14000001, CMDSEQ_HIF);
@@ -243,12 +249,10 @@ void dpu_be_wait(struct dpu_bliteng *dpu_be)
 
 	while ((dpu_be_read(dpu_be, COMCTRL_INTERRUPTSTATUS0) &
 		STORE9_SEQCOMPLETE_IRQ_MASK) == 0)
-		usleep_range(30, 50);
+		usleep_range(1000, 2000);
 
 	dpu_be_write(dpu_be, STORE9_SEQCOMPLETE_IRQ_MASK,
 		COMCTRL_INTERRUPTCLEAR0);
-
-	dpu_be->sync = false;
 }
 EXPORT_SYMBOL(dpu_be_wait);
 
@@ -385,7 +389,7 @@ int dpu_bliteng_init(struct dpu_bliteng *dpu_bliteng)
 	dpu_base = res->start;
 
 	/* remap with bigger size */
-	base = devm_ioremap(dpu->dev, dpu_base, COMMAND_BUFFER_SIZE);
+	base = devm_ioremap(dpu->dev, dpu_base, 64*SZ_1K);
 	dpu_bliteng->base = base;
 	dpu_bliteng->dpu = dpu;
 
@@ -409,10 +413,8 @@ int dpu_bliteng_init(struct dpu_bliteng *dpu_bliteng)
 	dprc_disable(dpu_bliteng->dprc[0]);
 	dprc_disable(dpu_bliteng->dprc[1]);
 
+	dpu_bliteng->handle_start = false;
 	dpu_bliteng->start = true;
-	dpu_bliteng->sync = false;
-
-	dpu_bliteng->modifier = 0;
 
 	return 0;
 }

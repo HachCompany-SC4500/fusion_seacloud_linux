@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
  * The USB Monitor, inspired by Dave Harding's USBMon.
  *
@@ -9,14 +8,13 @@
 #include <linux/list.h>
 #include <linux/usb.h>
 #include <linux/slab.h>
-#include <linux/sched/signal.h>
 #include <linux/time.h>
 #include <linux/ktime.h>
 #include <linux/export.h>
 #include <linux/mutex.h>
 #include <linux/debugfs.h>
 #include <linux/scatterlist.h>
-#include <linux/uaccess.h>
+#include <asm/uaccess.h>
 
 #include "usb_mon.h"
 

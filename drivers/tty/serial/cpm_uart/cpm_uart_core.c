@@ -1127,7 +1127,7 @@ static void cpm_put_poll_char(struct uart_port *port,
 }
 #endif /* CONFIG_CONSOLE_POLL */
 
-static const struct uart_ops cpm_uart_pops = {
+static struct uart_ops cpm_uart_pops = {
 	.tx_empty	= cpm_uart_tx_empty,
 	.set_mctrl	= cpm_uart_set_mctrl,
 	.get_mctrl	= cpm_uart_get_mctrl,
@@ -1306,7 +1306,7 @@ static int __init cpm_uart_console_setup(struct console *co, char *options)
 	struct uart_cpm_port *pinfo;
 	struct uart_port *port;
 
-	struct device_node *np;
+	struct device_node *np = NULL;
 	int i = 0;
 
 	if (co->index >= UART_NR) {
@@ -1315,19 +1315,17 @@ static int __init cpm_uart_console_setup(struct console *co, char *options)
 		return -ENODEV;
 	}
 
-	for_each_node_by_type(np, "serial") {
+	do {
+		np = of_find_node_by_type(np, "serial");
+		if (!np)
+			return -ENODEV;
+
 		if (!of_device_is_compatible(np, "fsl,cpm1-smc-uart") &&
 		    !of_device_is_compatible(np, "fsl,cpm1-scc-uart") &&
 		    !of_device_is_compatible(np, "fsl,cpm2-smc-uart") &&
 		    !of_device_is_compatible(np, "fsl,cpm2-scc-uart"))
-			continue;
-
-		if (i++ == co->index)
-			break;
-	}
-
-	if (!np)
-		return -ENODEV;
+			i--;
+	} while (i++ != co->index);
 
 	pinfo = &cpm_uart_ports[co->index];
 

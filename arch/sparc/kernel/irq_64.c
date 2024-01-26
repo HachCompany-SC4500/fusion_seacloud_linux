@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0
 /* irq.c: UltraSparc IRQ handling/init/registry.
  *
  * Copyright (C) 1997, 2007, 2008 David S. Miller (davem@davemloft.net)
@@ -36,7 +35,7 @@
 #include <asm/timer.h>
 #include <asm/smp.h>
 #include <asm/starfire.h>
-#include <linux/uaccess.h>
+#include <asm/uaccess.h>
 #include <asm/cache.h>
 #include <asm/cpudata.h>
 #include <asm/auxio.h>

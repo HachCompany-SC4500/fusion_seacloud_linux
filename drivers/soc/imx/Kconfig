@@ -1,4 +1,7 @@
-menu "i.MX SoC drivers"
+#
+# IMX Soc drivers
+#
+menu "NXP IMX SoC drivers"
 
 menuconfig ARCH_MXC_ARM64
 	bool "NXP i.MX family"
@@ -19,7 +22,6 @@ config ARCH_FSL_IMX8QXP
 	select HAVE_IMX_MU
 	select HAVE_IMX_RPMSG
 	select HAVE_IMX8_SOC
-	select CLKSRC_IMX_GPT
 
 config ARCH_FSL_IMX8MQ
 	bool "i.MX8MQ"
@@ -34,13 +36,6 @@ config ARCH_FSL_IMX8MM
 	select HAVE_IMX8_SOC
 
 endif
-
-config IMX7_PM_DOMAINS
-	bool "i.MX7 PM domains"
-	depends on SOC_IMX7D || (COMPILE_TEST && OF)
-	depends on PM
-	select PM_GENERIC_DOMAINS
-	default y if SOC_IMX7D
 
 config HAVE_IMX_MU
 	bool

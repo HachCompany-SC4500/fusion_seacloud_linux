@@ -69,7 +69,6 @@
 #define ATH8030_PHY_ID 0x004dd076
 #define ATH8031_PHY_ID 0x004dd074
 #define ATH8035_PHY_ID 0x004dd072
-#define AT803X_PHY_ID_MASK			0xffffffef
 
 /* LED_ACT is busy on blinding even if no any frame transferring,
  * it may cause by PHY/RJ45 power supply issue, the fixup flag just
@@ -295,9 +294,13 @@ static int at803x_resume(struct phy_device *phydev)
 {
 	int value;
 
+	mutex_lock(&phydev->lock);
+
 	value = phy_read(phydev, MII_BMCR);
 	value &= ~(BMCR_PDOWN | BMCR_ISOLATE);
 	phy_write(phydev, MII_BMCR, value);
+
+	mutex_unlock(&phydev->lock);
 
 	return 0;
 }
@@ -514,7 +517,7 @@ static struct phy_driver at803x_driver[] = {
 	/* ATHEROS 8035 */
 	.phy_id			= ATH8035_PHY_ID,
 	.name			= "Atheros 8035 ethernet",
-	.phy_id_mask		= AT803X_PHY_ID_MASK,
+	.phy_id_mask		= 0xffffffef,
 	.probe			= at803x_probe,
 	.config_init		= at803x_config_init,
 	.set_wol		= at803x_set_wol,
@@ -531,7 +534,7 @@ static struct phy_driver at803x_driver[] = {
 	/* ATHEROS 8030 */
 	.phy_id			= ATH8030_PHY_ID,
 	.name			= "Atheros 8030 ethernet",
-	.phy_id_mask		= AT803X_PHY_ID_MASK,
+	.phy_id_mask		= 0xffffffef,
 	.probe			= at803x_probe,
 	.config_init		= at803x_config_init,
 	.link_change_notify	= at803x_link_change_notify,
@@ -549,7 +552,7 @@ static struct phy_driver at803x_driver[] = {
 	/* ATHEROS 8031 */
 	.phy_id			= ATH8031_PHY_ID,
 	.name			= "Atheros 8031 ethernet",
-	.phy_id_mask		= AT803X_PHY_ID_MASK,
+	.phy_id_mask		= 0xffffffef,
 	.probe			= at803x_probe,
 	.config_init		= at803x_config_init,
 	.set_wol		= at803x_set_wol,
@@ -568,9 +571,9 @@ static struct phy_driver at803x_driver[] = {
 module_phy_driver(at803x_driver);
 
 static struct mdio_device_id __maybe_unused atheros_tbl[] = {
-	{ ATH8030_PHY_ID, AT803X_PHY_ID_MASK },
-	{ ATH8031_PHY_ID, AT803X_PHY_ID_MASK },
-	{ ATH8035_PHY_ID, AT803X_PHY_ID_MASK },
+	{ ATH8030_PHY_ID, 0xffffffef },
+	{ ATH8031_PHY_ID, 0xffffffef },
+	{ ATH8035_PHY_ID, 0xffffffef },
 	{ }
 };
 

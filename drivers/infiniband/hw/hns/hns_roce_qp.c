@@ -37,7 +37,7 @@
 #include "hns_roce_common.h"
 #include "hns_roce_device.h"
 #include "hns_roce_hem.h"
-#include <rdma/hns-abi.h>
+#include "hns_roce_user.h"
 
 #define SQP_NUM				(2 * HNS_ROCE_MAX_PORTS)
 
@@ -101,7 +101,7 @@ static void hns_roce_ib_qp_event(struct hns_roce_qp *hr_qp,
 			event.event = IB_EVENT_QP_ACCESS_ERR;
 			break;
 		default:
-			dev_dbg(ibqp->device->dev.parent, "roce_ib: Unexpected event type %d on QP %06lx\n",
+			dev_dbg(ibqp->device->dma_device, "roce_ib: Unexpected event type %d on QP %06lx\n",
 				type, hr_qp->qpn);
 			return;
 		}
@@ -253,7 +253,7 @@ void hns_roce_release_range_qp(struct hns_roce_dev *hr_dev, int base_qpn,
 	if (base_qpn < SQP_NUM)
 		return;
 
-	hns_roce_bitmap_free_range(&qp_table->bitmap, base_qpn, cnt, BITMAP_RR);
+	hns_roce_bitmap_free_range(&qp_table->bitmap, base_qpn, cnt);
 }
 
 static int hns_roce_set_rq_size(struct hns_roce_dev *hr_dev,
@@ -440,7 +440,8 @@ static int hns_roce_create_qp_common(struct hns_roce_dev *hr_dev,
 		}
 
 		ret = hns_roce_mtt_init(hr_dev, ib_umem_page_count(hr_qp->umem),
-					hr_qp->umem->page_shift, &hr_qp->mtt);
+				    ilog2((unsigned int)hr_qp->umem->page_size),
+				    &hr_qp->mtt);
 		if (ret) {
 			dev_err(dev, "hns_roce_mtt_init error for create qp\n");
 			goto err_buf;
@@ -802,7 +803,7 @@ bool hns_roce_wq_overflow(struct hns_roce_wq *hr_wq, int nreq,
 
 	cur = hr_wq->head - hr_wq->tail;
 	if (likely(cur + nreq < hr_wq->max_post))
-		return false;
+		return 0;
 
 	hr_cq = to_hr_cq(ib_cq);
 	spin_lock(&hr_cq->lock);

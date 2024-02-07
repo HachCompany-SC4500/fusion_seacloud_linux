@@ -6,6 +6,8 @@
 # published by the Free Software Foundation.
 #
 
+UTS_MACHINE := arc
+
 KBUILD_DEFCONFIG := nsim_hs_defconfig
 
 cflags-y	+= -fno-common -pipe -fno-builtin -mmedium-calls -D__linux__
@@ -83,11 +85,10 @@ core-y		+= arch/arc/
 # w/o this dtb won't embed into kernel binary
 core-y		+= arch/arc/boot/dts/
 
-core-y				+= arch/arc/plat-sim/
+core-$(CONFIG_ARC_PLAT_SIM)	+= arch/arc/plat-sim/
 core-$(CONFIG_ARC_PLAT_TB10X)	+= arch/arc/plat-tb10x/
 core-$(CONFIG_ARC_PLAT_AXS10X)	+= arch/arc/plat-axs10x/
 core-$(CONFIG_ARC_PLAT_EZNPS)	+= arch/arc/plat-eznps/
-core-$(CONFIG_ARC_SOC_HSDK)	+= arch/arc/plat-hsdk/
 
 ifdef CONFIG_ARC_PLAT_EZNPS
 KBUILD_CPPFLAGS += -I$(srctree)/arch/arc/plat-eznps/include
@@ -100,9 +101,9 @@ libs-y		+= arch/arc/lib/ $(LIBGCC)
 boot		:= arch/arc/boot
 
 #default target for make without any arguments.
-KBUILD_IMAGE	:= $(boot)/bootpImage
+KBUILD_IMAGE	:= bootpImage
 
-all:	bootpImage
+all:	$(KBUILD_IMAGE)
 bootpImage: vmlinux
 
 boot_targets += uImage uImage.bin uImage.gz

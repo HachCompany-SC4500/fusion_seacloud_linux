@@ -230,7 +230,7 @@ static bool roi_configure(struct dcic_data *dcic, struct roi_params *roi_param)
 	struct roi_regs *roi_reg;
 	u32 val;
 
-	if (roi_param->roi_n >= 16) {
+	if (roi_param->roi_n < 0 || roi_param->roi_n >= 16) {
 		printk(KERN_ERR "Error, Wrong ROI number %d\n", roi_param->roi_n);
 		return false;
 	}
@@ -360,8 +360,7 @@ static int dcic_release(struct inode *inode, struct file *file)
 
 static int dcic_init(struct device_node *np, struct dcic_data *dcic)
 {
-	int val;
-	u32 bus;
+	u32 val, bus;
 
 	val = of_get_dcic_val(np, dcic);
 	if (val < 0) {

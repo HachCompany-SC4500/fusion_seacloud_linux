@@ -28,6 +28,5 @@ extern bool TKT340553_SW_WORKAROUND;
 unsigned int imx8_get_soc_revision(void);
 
 int check_m4_enabled(void);
-bool check_hdcp_enabled(void);
 
 #endif

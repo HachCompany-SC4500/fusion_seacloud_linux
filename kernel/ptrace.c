@@ -10,6 +10,9 @@
 #include <linux/capability.h>
 #include <linux/export.h>
 #include <linux/sched.h>
+#include <linux/sched/mm.h>
+#include <linux/sched/coredump.h>
+#include <linux/sched/task.h>
 #include <linux/errno.h>
 #include <linux/mm.h>
 #include <linux/highmem.h>
@@ -26,6 +29,7 @@
 #include <linux/hw_breakpoint.h>
 #include <linux/cn_proc.h>
 #include <linux/compat.h>
+#include <linux/sched/signal.h>
 
 /*
  * Access another process' address space via ptrace.
@@ -725,8 +729,7 @@ static int ptrace_peek_siginfo(struct task_struct *child,
 		if (unlikely(in_compat_syscall())) {
 			compat_siginfo_t __user *uinfo = compat_ptr(data);
 
-			if (copy_siginfo_to_user32(uinfo, &info) ||
-			    __put_user(info.si_code, &uinfo->si_code)) {
+			if (copy_siginfo_to_user32(uinfo, &info)) {
 				ret = -EFAULT;
 				break;
 			}
@@ -736,8 +739,7 @@ static int ptrace_peek_siginfo(struct task_struct *child,
 		{
 			siginfo_t __user *uinfo = (siginfo_t __user *) data;
 
-			if (copy_siginfo_to_user(uinfo, &info) ||
-			    __put_user(info.si_code, &uinfo->si_code)) {
+			if (copy_siginfo_to_user(uinfo, &info)) {
 				ret = -EFAULT;
 				break;
 			}
@@ -924,18 +926,26 @@ int ptrace_request(struct task_struct *child, long request,
 			ret = ptrace_setsiginfo(child, &siginfo);
 		break;
 
-	case PTRACE_GETSIGMASK:
+	case PTRACE_GETSIGMASK: {
+		sigset_t *mask;
+
 		if (addr != sizeof(sigset_t)) {
 			ret = -EINVAL;
 			break;
 		}
 
-		if (copy_to_user(datavp, &child->blocked, sizeof(sigset_t)))
+		if (test_tsk_restore_sigmask(child))
+			mask = &child->saved_sigmask;
+		else
+			mask = &child->blocked;
+
+		if (copy_to_user(datavp, mask, sizeof(sigset_t)))
 			ret = -EFAULT;
 		else
 			ret = 0;
 
 		break;
+	}
 
 	case PTRACE_SETSIGMASK: {
 		sigset_t new_set;
@@ -960,6 +970,8 @@ int ptrace_request(struct task_struct *child, long request,
 		spin_lock_irq(&child->sighand->siglock);
 		child->blocked = new_set;
 		spin_unlock_irq(&child->sighand->siglock);
+
+		clear_tsk_restore_sigmask(child);
 
 		ret = 0;
 		break;

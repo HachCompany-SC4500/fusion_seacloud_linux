@@ -458,7 +458,7 @@ static void ReadCoreConfig(hantrodec_t *dev)
 			dev->cfg |= tmp ? 1 << DWL_CLIENT_TYPE_RV_DEC : 0;
 
 			/* Post-processor configuration */
-			reg = ioread32(dev->hwregs + HANTROPP_SYNTH_CFG * 4);
+			//reg = ioread32(dev->hwregs + HANTROPP_SYNTH_CFG * 4);
 		} else {
 			reg = ioread32(dev->hwregs + HANTRODEC_SYNTH_CFG_2 * 4);
 
@@ -505,7 +505,8 @@ static int GetDecCore(hantrodec_t *dev, struct file *filp)
 }
 
 static int GetDecCoreAny(long *Core, hantrodec_t *dev, struct file *filp,
-			unsigned long format) {
+			unsigned long format)
+{
 	int success = 0;
 	//long c;
 
@@ -870,7 +871,8 @@ static long WaitDecReadyAndRefreshRegs(hantrodec_t *dev, struct core_desc *Core)
 
 	PDEBUG("wait_event_interruptible DEC[%d]\n", dev->core_id);
 
-	ret = wait_event_interruptible_timeout(dec_wait_queue, CheckDecIrq(dev), msecs_to_jiffies(200));
+	//ret = wait_event_interruptible_timeout(dec_wait_queue, CheckDecIrq(dev), msecs_to_jiffies(200));
+	ret = wait_event_timeout(dec_wait_queue, CheckDecIrq(dev), msecs_to_jiffies(200));
 	if (ret == -ERESTARTSYS) {
 		pr_err("DEC[%d]  failed to wait_event_interruptible interrupted\n", dev->core_id);
 		return -ERESTARTSYS;
@@ -1154,6 +1156,9 @@ static long hantrodec_ioctl(struct file *filp, unsigned int cmd, unsigned long a
 			return -EFAULT;
 		}
 
+		if (Core.id >= cores)
+			return -EFAULT;
+
 		DecFlushRegs(&hantrodec_data[Core.id], &Core);
 		break;
 	}
@@ -1166,6 +1171,9 @@ static long hantrodec_ioctl(struct file *filp, unsigned int cmd, unsigned long a
 			pr_err("copy_from_user failed, returned %li\n", tmp);
 			return -EFAULT;
 		}
+
+		if (Core.id >= cores)
+			return -EFAULT;
 
 		PPFlushRegs(&hantrodec_data[Core.id], &Core);
 		break;
@@ -1180,6 +1188,9 @@ static long hantrodec_ioctl(struct file *filp, unsigned int cmd, unsigned long a
 			return -EFAULT;
 		}
 
+		if (Core.id >= cores)
+			return -EFAULT;
+
 		return DecRefreshRegs(&hantrodec_data[Core.id], &Core);
 	}
 	case _IOC_NR(HANTRODEC_IOCS_PP_PULL_REG): {
@@ -1191,6 +1202,9 @@ static long hantrodec_ioctl(struct file *filp, unsigned int cmd, unsigned long a
 			pr_err("copy_from_user failed, returned %li\n", tmp);
 			return -EFAULT;
 		}
+
+		if (Core.id >= cores)
+			return -EFAULT;
 
 		return PPRefreshRegs(&hantrodec_data[Core.id], &Core);
 	}
@@ -1239,6 +1253,9 @@ static long hantrodec_ioctl(struct file *filp, unsigned int cmd, unsigned long a
 			return -EFAULT;
 		}
 
+		if (Core.id >= cores)
+			return -EFAULT;
+
 		return WaitDecReadyAndRefreshRegs(&hantrodec_data[Core.id], &Core);
 	}
 	case _IOC_NR(HANTRODEC_IOCX_PP_WAIT): {
@@ -1250,6 +1267,9 @@ static long hantrodec_ioctl(struct file *filp, unsigned int cmd, unsigned long a
 			pr_err("copy_from_user failed, returned %li\n", tmp);
 			return -EFAULT;
 		}
+
+		if (Core.id >= cores)
+			return -EFAULT;
 
 		return WaitPPReadyAndRefreshRegs(&hantrodec_data[Core.id], &Core);
 	}
@@ -1779,7 +1799,8 @@ static irqreturn_t hantrodec_isr(int irq, void *dev_id)
 
 			dec_irq |= (1 << dev->core_id);
 
-			wake_up_interruptible_all(&dec_wait_queue);
+			//wake_up_interruptible_all(&dec_wait_queue);
+			wake_up_all(&dec_wait_queue);
 			handled++;
 		}
 	//}
@@ -1980,7 +2001,7 @@ static const struct of_device_id hantro_of_match[] = {
 	{ .compatible = "nxp,imx8mm-hantro", },
 	{/* sentinel */}
 };
-MODULE_DEVICE_TABLE(of, vpu_of_match);
+MODULE_DEVICE_TABLE(of, hantro_of_match);
 
 
 static struct platform_driver mxchantro_driver = {

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/fs/pipe.c
  *
@@ -23,7 +24,7 @@
 #include <linux/fcntl.h>
 #include <linux/memcontrol.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/ioctls.h>
 
 #include "internal.h"
@@ -193,9 +194,9 @@ EXPORT_SYMBOL(generic_pipe_buf_steal);
  *	in the tee() system call, when we duplicate the buffers in one
  *	pipe into another.
  */
-void generic_pipe_buf_get(struct pipe_inode_info *pipe, struct pipe_buffer *buf)
+bool generic_pipe_buf_get(struct pipe_inode_info *pipe, struct pipe_buffer *buf)
 {
-	get_page(buf->page);
+	return try_get_page(buf->page);
 }
 EXPORT_SYMBOL(generic_pipe_buf_get);
 
@@ -238,6 +239,14 @@ static const struct pipe_buf_operations anon_pipe_buf_ops = {
 	.get = generic_pipe_buf_get,
 };
 
+static const struct pipe_buf_operations anon_pipe_buf_nomerge_ops = {
+	.can_merge = 0,
+	.confirm = generic_pipe_buf_confirm,
+	.release = anon_pipe_buf_release,
+	.steal = anon_pipe_buf_steal,
+	.get = generic_pipe_buf_get,
+};
+
 static const struct pipe_buf_operations packet_pipe_buf_ops = {
 	.can_merge = 0,
 	.confirm = generic_pipe_buf_confirm,
@@ -245,6 +254,12 @@ static const struct pipe_buf_operations packet_pipe_buf_ops = {
 	.steal = anon_pipe_buf_steal,
 	.get = generic_pipe_buf_get,
 };
+
+void pipe_buf_mark_unmergeable(struct pipe_buffer *buf)
+{
+	if (buf->ops == &anon_pipe_buf_ops)
+		buf->ops = &anon_pipe_buf_nomerge_ops;
+}
 
 static ssize_t
 pipe_read(struct kiocb *iocb, struct iov_iter *to)
@@ -744,13 +759,12 @@ int create_pipe_files(struct file **res, int flags)
 	struct inode *inode = get_pipe_inode();
 	struct file *f;
 	struct path path;
-	static struct qstr name = { .name = "" };
 
 	if (!inode)
 		return -ENFILE;
 
 	err = -ENOMEM;
-	path.dentry = d_alloc_pseudo(pipe_mnt->mnt_sb, &name);
+	path.dentry = d_alloc_pseudo(pipe_mnt->mnt_sb, &empty_name);
 	if (!path.dentry)
 		goto err_inode;
 	path.mnt = mntget(pipe_mnt);
@@ -1139,7 +1153,7 @@ int pipe_proc_fn(struct ctl_table *table, int write, void __user *buf,
 	unsigned int rounded_pipe_max_size;
 	int ret;
 
-	ret = proc_dointvec_minmax(table, write, buf, lenp, ppos);
+	ret = proc_douintvec_minmax(table, write, buf, lenp, ppos);
 	if (ret < 0 || !write)
 		return ret;
 

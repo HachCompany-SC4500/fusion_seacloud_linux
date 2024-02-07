@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __LINUX_USB_H
 #define __LINUX_USB_H
 
@@ -99,6 +100,76 @@ enum usb_interface_condition {
 	USB_INTERFACE_UNBINDING,
 };
 
+int __must_check
+usb_find_common_endpoints(struct usb_host_interface *alt,
+		struct usb_endpoint_descriptor **bulk_in,
+		struct usb_endpoint_descriptor **bulk_out,
+		struct usb_endpoint_descriptor **int_in,
+		struct usb_endpoint_descriptor **int_out);
+
+int __must_check
+usb_find_common_endpoints_reverse(struct usb_host_interface *alt,
+		struct usb_endpoint_descriptor **bulk_in,
+		struct usb_endpoint_descriptor **bulk_out,
+		struct usb_endpoint_descriptor **int_in,
+		struct usb_endpoint_descriptor **int_out);
+
+static inline int __must_check
+usb_find_bulk_in_endpoint(struct usb_host_interface *alt,
+		struct usb_endpoint_descriptor **bulk_in)
+{
+	return usb_find_common_endpoints(alt, bulk_in, NULL, NULL, NULL);
+}
+
+static inline int __must_check
+usb_find_bulk_out_endpoint(struct usb_host_interface *alt,
+		struct usb_endpoint_descriptor **bulk_out)
+{
+	return usb_find_common_endpoints(alt, NULL, bulk_out, NULL, NULL);
+}
+
+static inline int __must_check
+usb_find_int_in_endpoint(struct usb_host_interface *alt,
+		struct usb_endpoint_descriptor **int_in)
+{
+	return usb_find_common_endpoints(alt, NULL, NULL, int_in, NULL);
+}
+
+static inline int __must_check
+usb_find_int_out_endpoint(struct usb_host_interface *alt,
+		struct usb_endpoint_descriptor **int_out)
+{
+	return usb_find_common_endpoints(alt, NULL, NULL, NULL, int_out);
+}
+
+static inline int __must_check
+usb_find_last_bulk_in_endpoint(struct usb_host_interface *alt,
+		struct usb_endpoint_descriptor **bulk_in)
+{
+	return usb_find_common_endpoints_reverse(alt, bulk_in, NULL, NULL, NULL);
+}
+
+static inline int __must_check
+usb_find_last_bulk_out_endpoint(struct usb_host_interface *alt,
+		struct usb_endpoint_descriptor **bulk_out)
+{
+	return usb_find_common_endpoints_reverse(alt, NULL, bulk_out, NULL, NULL);
+}
+
+static inline int __must_check
+usb_find_last_int_in_endpoint(struct usb_host_interface *alt,
+		struct usb_endpoint_descriptor **int_in)
+{
+	return usb_find_common_endpoints_reverse(alt, NULL, NULL, int_in, NULL);
+}
+
+static inline int __must_check
+usb_find_last_int_out_endpoint(struct usb_host_interface *alt,
+		struct usb_endpoint_descriptor **int_out)
+{
+	return usb_find_common_endpoints_reverse(alt, NULL, NULL, NULL, int_out);
+}
+
 /**
  * struct usb_interface - what usb device drivers talk to
  * @altsetting: array of interface structures, one for each alternate
@@ -129,7 +200,6 @@ enum usb_interface_condition {
  * @dev: driver model's view of this device
  * @usb_dev: if an interface is bound to the USB major, this will point
  *	to the sysfs representation for that device.
- * @pm_usage_cnt: PM usage counter for this interface
  * @reset_ws: Used for scheduling resets from atomic context.
  * @resetting_device: USB core reset the device, so use alt setting 0 as
  *	current; needs bandwidth alloc after reset.
@@ -186,7 +256,6 @@ struct usb_interface {
 
 	struct device dev;		/* interface specific device info */
 	struct device *usb_dev;
-	atomic_t pm_usage_cnt;		/* usage counter for autosuspend */
 	struct work_struct reset_ws;	/* for resets in atomic context */
 };
 #define	to_usb_interface(d) container_of(d, struct usb_interface, dev)
@@ -248,7 +317,7 @@ void usb_put_intf(struct usb_interface *intf);
  * struct usb_interface (which persists only as long as its configuration
  * is installed).  The altsetting arrays can be accessed through these
  * structures at any time, permitting comparison of configurations and
- * providing support for the /proc/bus/usb/devices pseudo-file.
+ * providing support for the /sys/kernel/debug/usb/devices pseudo-file.
  */
 struct usb_interface_cache {
 	unsigned num_altsetting;	/* number of alternate settings */
@@ -336,11 +405,11 @@ struct usb_host_bos {
 };
 
 int __usb_get_extra_descriptor(char *buffer, unsigned size,
-	unsigned char type, void **ptr);
+	unsigned char type, void **ptr, size_t min);
 #define usb_get_extra_descriptor(ifpoint, type, ptr) \
 				__usb_get_extra_descriptor((ifpoint)->extra, \
 				(ifpoint)->extralen, \
-				type, (void **)ptr)
+				type, (void **)ptr, sizeof(**(ptr)))
 
 /* ----------------------------------------------------------------------- */
 
@@ -1162,7 +1231,7 @@ extern struct bus_type usb_bus_type;
  * @minor_base: the start of the minor range for this driver.
  *
  * This structure is used for the usb_register_dev() and
- * usb_unregister_dev() functions, to consolidate a number of the
+ * usb_deregister_dev() functions, to consolidate a number of the
  * parameters used for them.
  */
 struct usb_class_driver {
@@ -1658,6 +1727,8 @@ static inline int usb_urb_dir_out(struct urb *urb)
 {
 	return (urb->transfer_flags & URB_DIR_MASK) == URB_DIR_OUT;
 }
+
+int usb_urb_ep_type_check(const struct urb *urb);
 
 void *usb_alloc_coherent(struct usb_device *dev, size_t size,
 	gfp_t mem_flags, dma_addr_t *dma);

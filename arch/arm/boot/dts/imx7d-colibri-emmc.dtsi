@@ -1,9 +1,6 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
 /*
- * Copyright (C) 2017 Toradex AG
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License version 2 as
- * published by the Free Software Foundation.
+ * Copyright 2017 Toradex AG
  */
 
 #include "imx7d.dtsi"
@@ -19,14 +16,15 @@
 	};
 
 	memory {
+		device_type = "memory";
 		reg = <0x80000000 0x40000000>;
 	};
 };
 
-&usdhc3 {
-	status = "okay";
-};
-
 &usbotg2 {
 	dr_mode = "host";
+};
+
+&usdhc3 {
+	status = "okay";
 };

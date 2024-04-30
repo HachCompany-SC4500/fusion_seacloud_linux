@@ -1,4 +1,4 @@
-/* Copyright (C) 2012-2017  B.A.T.M.A.N. contributors:
+/* Copyright (C) 2012-2016  B.A.T.M.A.N. contributors:
  *
  * Martin Hundebøll, Jeppe Ledet-Pedersen
  *
@@ -44,6 +44,7 @@
 #include <linux/skbuff.h>
 #include <linux/slab.h>
 #include <linux/spinlock.h>
+#include <linux/stat.h>
 #include <linux/stddef.h>
 #include <linux/string.h>
 #include <linux/workqueue.h>
@@ -260,16 +261,10 @@ static void batadv_nc_path_put(struct batadv_nc_path *nc_path)
 /**
  * batadv_nc_packet_free - frees nc packet
  * @nc_packet: the nc packet to free
- * @dropped: whether the packet is freed because is is dropped
  */
-static void batadv_nc_packet_free(struct batadv_nc_packet *nc_packet,
-				  bool dropped)
+static void batadv_nc_packet_free(struct batadv_nc_packet *nc_packet)
 {
-	if (dropped)
-		kfree_skb(nc_packet->skb);
-	else
-		consume_skb(nc_packet->skb);
-
+	kfree_skb(nc_packet->skb);
 	batadv_nc_path_put(nc_packet->nc_path);
 	kfree(nc_packet);
 }
@@ -582,7 +577,7 @@ static void batadv_nc_send_packet(struct batadv_nc_packet *nc_packet)
 {
 	batadv_send_unicast_skb(nc_packet->skb, nc_packet->neigh_node);
 	nc_packet->skb = NULL;
-	batadv_nc_packet_free(nc_packet, false);
+	batadv_nc_packet_free(nc_packet);
 }
 
 /**
@@ -616,7 +611,7 @@ static bool batadv_nc_sniffed_purge(struct batadv_priv *bat_priv,
 
 	/* purge nc packet */
 	list_del(&nc_packet->list);
-	batadv_nc_packet_free(nc_packet, true);
+	batadv_nc_packet_free(nc_packet);
 
 	res = true;
 
@@ -1217,11 +1212,11 @@ static bool batadv_nc_code_packets(struct batadv_priv *bat_priv,
 	}
 
 	/* skb_src is now coded into skb_dest, so free it */
-	consume_skb(skb_src);
+	kfree_skb(skb_src);
 
 	/* avoid duplicate free of skb from nc_packet */
 	nc_packet->skb = NULL;
-	batadv_nc_packet_free(nc_packet, false);
+	batadv_nc_packet_free(nc_packet);
 
 	/* Send the coded packet and return true */
 	batadv_send_unicast_skb(skb_dest, first_dest);
@@ -1408,7 +1403,7 @@ static void batadv_nc_skb_store_before_coding(struct batadv_priv *bat_priv,
 	/* batadv_nc_skb_store_for_decoding() clones the skb, so we must free
 	 * our ref
 	 */
-	consume_skb(skb);
+	kfree_skb(skb);
 }
 
 /**
@@ -1732,7 +1727,7 @@ batadv_nc_skb_decode_packet(struct batadv_priv *bat_priv, struct sk_buff *skb,
 	ether_addr_copy(unicast_packet->dest, orig_dest);
 	unicast_packet->ttvn = ttvn;
 
-	batadv_nc_packet_free(nc_packet, false);
+	batadv_nc_packet_free(nc_packet);
 	return unicast_packet;
 }
 
@@ -1822,11 +1817,11 @@ static int batadv_nc_recv_coded_packet(struct sk_buff *skb,
 
 	/* Check if network coding is enabled */
 	if (!atomic_read(&bat_priv->network_coding))
-		goto free_skb;
+		return NET_RX_DROP;
 
 	/* Make sure we can access (and remove) header */
 	if (unlikely(!pskb_may_pull(skb, hdr_size)))
-		goto free_skb;
+		return NET_RX_DROP;
 
 	coded_packet = (struct batadv_coded_packet *)skb->data;
 	ethhdr = eth_hdr(skb);
@@ -1834,7 +1829,7 @@ static int batadv_nc_recv_coded_packet(struct sk_buff *skb,
 	/* Verify frame is destined for us */
 	if (!batadv_is_my_mac(bat_priv, ethhdr->h_dest) &&
 	    !batadv_is_my_mac(bat_priv, coded_packet->second_dest))
-		goto free_skb;
+		return NET_RX_DROP;
 
 	/* Update stat counter */
 	if (batadv_is_my_mac(bat_priv, coded_packet->second_dest))
@@ -1844,7 +1839,7 @@ static int batadv_nc_recv_coded_packet(struct sk_buff *skb,
 						   coded_packet);
 	if (!nc_packet) {
 		batadv_inc_counter(bat_priv, BATADV_CNT_NC_DECODE_FAILED);
-		goto free_skb;
+		return NET_RX_DROP;
 	}
 
 	/* Make skb's linear, because decoding accesses the entire buffer */
@@ -1869,10 +1864,7 @@ static int batadv_nc_recv_coded_packet(struct sk_buff *skb,
 	return batadv_recv_unicast_packet(skb, recv_if);
 
 free_nc_packet:
-	batadv_nc_packet_free(nc_packet, true);
-free_skb:
-	kfree_skb(skb);
-
+	batadv_nc_packet_free(nc_packet);
 	return NET_RX_DROP;
 }
 
@@ -1938,7 +1930,9 @@ int batadv_nc_nodes_seq_print_text(struct seq_file *seq, void *offset)
 						list)
 				seq_printf(seq, "%pM ",
 					   nc_node->addr);
-			seq_puts(seq, "\n Outgoing: ");
+			seq_puts(seq, "\n");
+
+			seq_puts(seq, " Outgoing: ");
 			/* For out_nc_node to this orig_node */
 			list_for_each_entry_rcu(nc_node,
 						&orig_node->out_coding_list,
@@ -1970,16 +1964,17 @@ int batadv_nc_init_debugfs(struct batadv_priv *bat_priv)
 	if (!nc_dir)
 		goto out;
 
-	file = debugfs_create_u8("min_tq", 0644, nc_dir, &bat_priv->nc.min_tq);
+	file = debugfs_create_u8("min_tq", S_IRUGO | S_IWUSR, nc_dir,
+				 &bat_priv->nc.min_tq);
 	if (!file)
 		goto out;
 
-	file = debugfs_create_u32("max_fwd_delay", 0644, nc_dir,
+	file = debugfs_create_u32("max_fwd_delay", S_IRUGO | S_IWUSR, nc_dir,
 				  &bat_priv->nc.max_fwd_delay);
 	if (!file)
 		goto out;
 
-	file = debugfs_create_u32("max_buffer_time", 0644, nc_dir,
+	file = debugfs_create_u32("max_buffer_time", S_IRUGO | S_IWUSR, nc_dir,
 				  &bat_priv->nc.max_buffer_time);
 	if (!file)
 		goto out;

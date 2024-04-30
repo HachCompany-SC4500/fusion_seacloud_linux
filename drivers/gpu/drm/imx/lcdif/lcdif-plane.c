@@ -113,14 +113,14 @@ static void lcdif_plane_atomic_update(struct drm_plane *plane,
 	 * be done in crtc's ->enable() helper func
 	 */
 	if (plane->type == DRM_PLANE_TYPE_PRIMARY)
-		lcdif_set_pix_fmt(lcdif, fb->format->format);
+		lcdif_set_pix_fmt(lcdif, fb->pixel_format);
 
 	switch (plane->type) {
 	case DRM_PLANE_TYPE_PRIMARY:
 		/* TODO: only support RGB */
 		gem_obj = drm_fb_cma_get_gem_obj(fb, 0);
 		src_off = (state->src_y >> 16) * fb->pitches[0] +
-			  (state->src_x >> 16) * fb->format->cpp[0];
+			  (state->src_x >> 16) * fb->bits_per_pixel;
 		fb_addr = gem_obj->paddr + fb->offsets[0] + src_off;
 		fb_idx  = 0;
 		break;
@@ -133,7 +133,7 @@ static void lcdif_plane_atomic_update(struct drm_plane *plane,
 
 	/* config horizontal cropping if crtc needs modeset */
 	if (unlikely(drm_atomic_crtc_needs_modeset(state->crtc->state))) {
-		cpp = fb->format->cpp[0];
+		cpp = fb->bits_per_pixel >> 3;
 		stride = DIV_ROUND_UP(fb->pitches[0], cpp);
 
 		src_w = state->src_w >> 16;
@@ -181,6 +181,7 @@ static const struct drm_plane_funcs lcdif_plane_funcs = {
 	.reset		= drm_atomic_helper_plane_reset,
 	.atomic_duplicate_state	= drm_atomic_helper_plane_duplicate_state,
 	.atomic_destroy_state	= drm_atomic_helper_plane_destroy_state,
+	.set_property	= drm_atomic_helper_plane_set_property,
 };
 
 struct lcdif_plane *lcdif_plane_init(struct drm_device *dev,

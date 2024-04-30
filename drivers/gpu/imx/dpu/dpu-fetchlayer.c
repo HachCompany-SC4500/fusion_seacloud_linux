@@ -218,12 +218,12 @@ struct dpu_fetchunit *dpu_fl_get(struct dpu_soc *dpu, int id)
 	mutex_lock(&fu->mutex);
 
 	if (fu->inuse) {
-		mutex_unlock(&fu->mutex);
-		return ERR_PTR(-EBUSY);
+		fu = ERR_PTR(-EBUSY);
+		goto out;
 	}
 
 	fu->inuse = true;
-
+out:
 	mutex_unlock(&fu->mutex);
 
 	return fu;

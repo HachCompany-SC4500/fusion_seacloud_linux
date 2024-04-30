@@ -140,7 +140,7 @@ static int __init dmi_walk_early(void (*decode)(const struct dmi_header *,
 
 	buf = dmi_early_remap(dmi_base, orig_dmi_len);
 	if (buf == NULL)
-		return -ENOMEM;
+		return -1;
 
 	dmi_decode_table(buf, decode, NULL);
 
@@ -174,7 +174,7 @@ static void __init dmi_save_ident(const struct dmi_header *dm, int slot,
 	const char *d = (const char *) dm;
 	const char *p;
 
-	if (dmi_ident[slot] || dm->length <= string)
+	if (dmi_ident[slot])
 		return;
 
 	p = dmi_string(dm, d[string]);
@@ -187,14 +187,13 @@ static void __init dmi_save_ident(const struct dmi_header *dm, int slot,
 static void __init dmi_save_uuid(const struct dmi_header *dm, int slot,
 		int index)
 {
-	const u8 *d;
+	const u8 *d = (u8 *) dm + index;
 	char *s;
 	int is_ff = 1, is_00 = 1, i;
 
-	if (dmi_ident[slot] || dm->length < index + 16)
+	if (dmi_ident[slot])
 		return;
 
-	d = (u8 *) dm + index;
 	for (i = 0; i < 16 && (is_ff || is_00); i++) {
 		if (d[i] != 0x00)
 			is_00 = 0;
@@ -225,17 +224,16 @@ static void __init dmi_save_uuid(const struct dmi_header *dm, int slot,
 static void __init dmi_save_type(const struct dmi_header *dm, int slot,
 		int index)
 {
-	const u8 *d;
+	const u8 *d = (u8 *) dm + index;
 	char *s;
 
-	if (dmi_ident[slot] || dm->length <= index)
+	if (dmi_ident[slot])
 		return;
 
 	s = dmi_alloc(4);
 	if (!s)
 		return;
 
-	d = (u8 *) dm + index;
 	sprintf(s, "%u", *d & 0x7F);
 	dmi_ident[slot] = s;
 }
@@ -276,13 +274,9 @@ static void __init dmi_save_devices(const struct dmi_header *dm)
 
 static void __init dmi_save_oem_strings_devices(const struct dmi_header *dm)
 {
-	int i, count;
+	int i, count = *(u8 *)(dm + 1);
 	struct dmi_device *dev;
 
-	if (dm->length < 0x05)
-		return;
-
-	count = *(u8 *)(dm + 1);
 	for (i = 1; i <= count; i++) {
 		const char *devname = dmi_string(dm, i);
 
@@ -355,9 +349,6 @@ static void __init dmi_save_extended_devices(const struct dmi_header *dm)
 	const char *name;
 	const u8 *d = (u8 *)dm;
 
-	if (dm->length < 0x0B)
-		return;
-
 	/* Skip disabled device */
 	if ((d[0x5] & 0x80) == 0)
 		return;
@@ -392,7 +383,7 @@ static void __init save_mem_devices(const struct dmi_header *dm, void *v)
 	const char *d = (const char *)dm;
 	static int nr;
 
-	if (dm->type != DMI_ENTRY_MEM_DEVICE || dm->length < 0x12)
+	if (dm->type != DMI_ENTRY_MEM_DEVICE)
 		return;
 	if (nr >= dmi_memdev_nr) {
 		pr_warn(FW_BUG "Too many DIMM entries in SMBIOS table\n");
@@ -435,7 +426,6 @@ static void __init dmi_decode(const struct dmi_header *dm, void *dummy)
 		dmi_save_ident(dm, DMI_PRODUCT_VERSION, 6);
 		dmi_save_ident(dm, DMI_PRODUCT_SERIAL, 7);
 		dmi_save_uuid(dm, DMI_PRODUCT_UUID, 8);
-		dmi_save_ident(dm, DMI_PRODUCT_FAMILY, 26);
 		break;
 	case 2:		/* Base Board Information */
 		dmi_save_ident(dm, DMI_BOARD_VENDOR, 4);
@@ -566,7 +556,7 @@ static int __init dmi_present(const u8 *buf)
 					dmi_ver >> 16, (dmi_ver >> 8) & 0xFF);
 			}
 			dmi_format_ids(dmi_ids_string, sizeof(dmi_ids_string));
-			pr_info("DMI: %s\n", dmi_ids_string);
+			printk(KERN_DEBUG "DMI: %s\n", dmi_ids_string);
 			return 0;
 		}
 	}
@@ -594,7 +584,7 @@ static int __init dmi_smbios3_present(const u8 *buf)
 				dmi_ver >> 16, (dmi_ver >> 8) & 0xFF,
 				dmi_ver & 0xFF);
 			dmi_format_ids(dmi_ids_string, sizeof(dmi_ids_string));
-			pr_info("DMI: %s\n", dmi_ids_string);
+			pr_debug("DMI: %s\n", dmi_ids_string);
 			return 0;
 		}
 	}
@@ -655,21 +645,6 @@ void __init dmi_scan_machine(void)
 			goto error;
 
 		/*
-		 * Same logic as above, look for a 64-bit entry point
-		 * first, and if not found, fall back to 32-bit entry point.
-		 */
-		memcpy_fromio(buf, p, 16);
-		for (q = p + 16; q < p + 0x10000; q += 16) {
-			memcpy_fromio(buf + 16, q, 16);
-			if (!dmi_smbios3_present(buf)) {
-				dmi_available = 1;
-				dmi_early_unmap(p, 0x10000);
-				goto out;
-			}
-			memcpy(buf, buf + 16, 16);
-		}
-
-		/*
 		 * Iterate over all possible DMI header addresses q.
 		 * Maintain the 32 bytes around q in buf.  On the
 		 * first iteration, substitute zero for the
@@ -679,7 +654,7 @@ void __init dmi_scan_machine(void)
 		memset(buf, 0, 16);
 		for (q = p; q < p + 0x10000; q += 16) {
 			memcpy_fromio(buf + 16, q, 16);
-			if (!dmi_present(buf)) {
+			if (!dmi_smbios3_present(buf) || !dmi_present(buf)) {
 				dmi_available = 1;
 				dmi_early_unmap(p, 0x10000);
 				goto out;
@@ -1013,8 +988,7 @@ EXPORT_SYMBOL(dmi_get_date);
  *	@decode: Callback function
  *	@private_data: Private data to be passed to the callback function
  *
- *	Returns 0 on success, -ENXIO if DMI is not selected or not present,
- *	or a different negative error code if DMI walking fails.
+ *	Returns -1 when the DMI table can't be reached, 0 on success.
  */
 int dmi_walk(void (*decode)(const struct dmi_header *, void *),
 	     void *private_data)
@@ -1022,11 +996,11 @@ int dmi_walk(void (*decode)(const struct dmi_header *, void *),
 	u8 *buf;
 
 	if (!dmi_available)
-		return -ENXIO;
+		return -1;
 
 	buf = dmi_remap(dmi_base, dmi_len);
 	if (buf == NULL)
-		return -ENOMEM;
+		return -1;
 
 	dmi_decode_table(buf, decode, private_data);
 

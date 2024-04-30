@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
  * device_cgroup.c - device cgroup subsystem
  *
@@ -569,7 +568,7 @@ static int propagate_exception(struct dev_cgroup *devcg_root,
 		    devcg->behavior == DEVCG_DEFAULT_ALLOW) {
 			rc = dev_exception_add(devcg, ex);
 			if (rc)
-				return rc;
+				break;
 		} else {
 			/*
 			 * in the other possible cases:

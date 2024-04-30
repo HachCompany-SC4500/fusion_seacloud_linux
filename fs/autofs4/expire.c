@@ -310,29 +310,26 @@ struct dentry *autofs4_expire_direct(struct super_block *sb,
 	now = jiffies;
 	timeout = sbi->exp_timeout;
 
+	spin_lock(&sbi->fs_lock);
+	ino = autofs4_dentry_ino(root);
+	/* No point expiring a pending mount */
+	if (ino->flags & AUTOFS_INF_PENDING)
+		goto out;
 	if (!autofs4_direct_busy(mnt, root, timeout, do_now)) {
-		spin_lock(&sbi->fs_lock);
-		ino = autofs4_dentry_ino(root);
-		/* No point expiring a pending mount */
-		if (ino->flags & AUTOFS_INF_PENDING) {
-			spin_unlock(&sbi->fs_lock);
-			goto out;
-		}
 		ino->flags |= AUTOFS_INF_WANT_EXPIRE;
 		spin_unlock(&sbi->fs_lock);
 		synchronize_rcu();
+		spin_lock(&sbi->fs_lock);
 		if (!autofs4_direct_busy(mnt, root, timeout, do_now)) {
-			spin_lock(&sbi->fs_lock);
 			ino->flags |= AUTOFS_INF_EXPIRING;
 			init_completion(&ino->expire_complete);
 			spin_unlock(&sbi->fs_lock);
 			return root;
 		}
-		spin_lock(&sbi->fs_lock);
 		ino->flags &= ~AUTOFS_INF_WANT_EXPIRE;
-		spin_unlock(&sbi->fs_lock);
 	}
 out:
+	spin_unlock(&sbi->fs_lock);
 	dput(root);
 
 	return NULL;
@@ -498,9 +495,8 @@ found:
 	return expired;
 }
 
-int autofs4_expire_wait(const struct path *path, int rcu_walk)
+int autofs4_expire_wait(struct dentry *dentry, int rcu_walk)
 {
-	struct dentry *dentry = path->dentry;
 	struct autofs_sb_info *sbi = autofs4_sbi(dentry->d_sb);
 	struct autofs_info *ino = autofs4_dentry_ino(dentry);
 	int status;
@@ -529,7 +525,7 @@ retry:
 
 		pr_debug("waiting for expire %p name=%pd\n", dentry, dentry);
 
-		status = autofs4_wait(sbi, path, NFY_NONE);
+		status = autofs4_wait(sbi, dentry, NFY_NONE);
 		wait_for_completion(&ino->expire_complete);
 
 		pr_debug("expire done status=%d\n", status);
@@ -567,6 +563,7 @@ int autofs4_expire_run(struct super_block *sb,
 	pkt.len = dentry->d_name.len;
 	memcpy(pkt.name, dentry->d_name.name, pkt.len);
 	pkt.name[pkt.len] = '\0';
+	dput(dentry);
 
 	if (copy_to_user(pkt_p, &pkt, sizeof(struct autofs_packet_expire)))
 		ret = -EFAULT;
@@ -578,8 +575,6 @@ int autofs4_expire_run(struct super_block *sb,
 	ino->flags &= ~(AUTOFS_INF_EXPIRING|AUTOFS_INF_WANT_EXPIRE);
 	complete_all(&ino->expire_complete);
 	spin_unlock(&sbi->fs_lock);
-
-	dput(dentry);
 
 	return ret;
 }
@@ -597,12 +592,11 @@ int autofs4_do_expire_multi(struct super_block *sb, struct vfsmount *mnt,
 
 	if (dentry) {
 		struct autofs_info *ino = autofs4_dentry_ino(dentry);
-		const struct path path = { .mnt = mnt, .dentry = dentry };
 
 		/* This is synchronous because it makes the daemon a
 		 * little easier
 		 */
-		ret = autofs4_wait(sbi, &path, NFY_EXPIRE);
+		ret = autofs4_wait(sbi, dentry, NFY_EXPIRE);
 
 		spin_lock(&sbi->fs_lock);
 		/* avoid rapid-fire expire attempts if expiry fails */

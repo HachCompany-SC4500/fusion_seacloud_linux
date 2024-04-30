@@ -1,5 +1,5 @@
 /*
- * Copyright 2018 NXP
+ * Copyright 2018-2019 NXP
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -12,10 +12,22 @@
  * GNU General Public License for more details.
  */
 
-#include "fsl-imx8qm-mek.dts"
+/dts-v1/;
+
+/memreserve/ 0x84000000 0x2000000;
+/memreserve/ 0x86000000 0x400000;
+/memreserve/ 0x90000000 0x400000;
+/memreserve/ 0x90400000 0x1C00000;
+/memreserve/ 0x92000000 0x200000;
+/memreserve/ 0x92400000 0x2000000;
+
+#include "fsl-imx8qm-mek.dtsi"
 #include "fsl-imx8qm-xen.dtsi"
 
 / {
+	model = "Freescale i.MX8QM MEK DOM0";
+	compatible = "fsl,imx8qm-mek", "fsl,imx8qm";
+
 	chosen {
 		#address-cells = <2>;
 		#size-cells = <2>;
@@ -56,7 +68,31 @@
 			init_on_rsrcs = <
 				SC_R_MU_2A
 			>;
+			/* Resources that will be transferred between
+			 * M41 and AP, when support android auto.
+			 */
+			rsrcs-m41-ap = <
+				SC_R_CSI_0
+				SC_R_CSI_0_PWM_0
+				SC_R_CSI_0_I2C_0
+				SC_R_LVDS_1
+				SC_R_LVDS_1_I2C_0
+				SC_R_LVDS_1_PWM_0
+				SC_R_DC_1
+				SC_R_DC_1_BLIT0
+				SC_R_DC_1_BLIT1
+				SC_R_DC_1_BLIT2
+				SC_R_DC_1_BLIT_OUT
+				SC_R_DC_1_WARP
+				SC_R_DC_1_VIDEO0
+				SC_R_DC_1_VIDEO1
+				SC_R_DC_1_FRAC0
+				SC_R_DC_1_PLL_0
+				SC_R_DC_1_PLL_1
+				SC_R_ISI_CH0
+			>;
 			rsrcs = <
+				SC_R_MU_6A
 				SC_R_GPU_1_PID0
 				SC_R_GPU_1_PID1
 				SC_R_GPU_1_PID2
@@ -69,23 +105,16 @@
 				SC_R_DC_1_BLIT1
 				SC_R_DC_1_BLIT2
 				SC_R_DC_1_BLIT_OUT
-				SC_R_DC_1_CAPTURE0
-				SC_R_DC_1_CAPTURE1
 				SC_R_DC_1_WARP
-				SC_R_DC_1_INTEGRAL0
-				SC_R_DC_1_INTEGRAL1
 				SC_R_DC_1_VIDEO0
 				SC_R_DC_1_VIDEO1
 				SC_R_DC_1_FRAC0
-				SC_R_DC_1_FRAC1
 				SC_R_DC_1_PLL_0
 				SC_R_DC_1_PLL_1
 				SC_R_MIPI_1
 				SC_R_MIPI_1_I2C_0
 				SC_R_MIPI_1_I2C_1
 				SC_R_MIPI_1_PWM_0
-				SC_R_HDMI
-				SC_R_HDMI_I2C_0
 				SC_R_SDHC_0
 				SC_R_USB_0
 				SC_R_USB_0_PHY
@@ -93,7 +122,84 @@
 				SC_R_DMA_0_CH14
 				SC_R_DMA_0_CH15
 				SC_R_MU_2A
-				>;
+				/* pcie */
+				SC_R_PCIE_B
+				SC_R_PCIE_A
+				SC_R_SERDES_0
+				SC_R_HSIO_GPIO
+				/*vpu*/
+				SC_R_VPU
+				SC_R_VPU_PID0
+				SC_R_VPU_PID1
+				SC_R_VPU_PID2
+				SC_R_VPU_PID3
+				SC_R_VPU_PID4
+				SC_R_VPU_PID5
+				SC_R_VPU_PID6
+				SC_R_VPU_PID7
+				SC_R_VPU_DEC_0
+				SC_R_VPU_ENC_0
+				SC_R_VPU_ENC_1
+				SC_R_VPU_TS_0
+				SC_R_VPU_MU_0
+				SC_R_VPU_MU_1
+				SC_R_VPU_MU_2
+				SC_R_VPU_MU_3
+				/* crypto */
+				SC_R_CAAM_JR2
+				SC_R_CAAM_JR2_OUT
+				SC_R_CAAM_JR3
+				SC_R_CAAM_JR3_OUT
+				/* Camera */
+				SC_R_ISI_CH0
+				SC_R_ISI_CH1
+				SC_R_ISI_CH2
+				SC_R_ISI_CH3
+				SC_R_MIPI_0
+				SC_R_MIPI_0_PWM_0
+				SC_R_MIPI_0_I2C_0
+				SC_R_MIPI_0_I2C_1
+				SC_R_CSI_0
+				SC_R_CSI_0_PWM_0
+				SC_R_CSI_0_I2C_0
+				/* usbotg3 */
+				SC_R_USB_2
+				SC_R_USB_2_PHY
+				/* SAI0 */
+				SC_R_DMA_2_CH12
+				SC_R_DMA_2_CH13
+				SC_R_SAI_0
+				/* ESAI0 */
+				SC_R_DMA_2_CH6
+				SC_R_DMA_2_CH7
+				SC_R_ESAI_0
+				/* ASRC0 */
+				SC_R_DMA_2_CH0
+				SC_R_DMA_2_CH1
+				SC_R_DMA_2_CH2
+				SC_R_DMA_2_CH3
+				SC_R_DMA_2_CH4
+				SC_R_DMA_2_CH5
+				SC_R_ASRC_0
+				SC_R_AUDIO_CLK_1
+				SC_R_AUDIO_CLK_0
+				SC_R_AUDIO_PLL_1
+				SC_R_AUDIO_PLL_0
+
+				SC_R_MCLK_OUT_0
+				SC_R_MCLK_OUT_1
+
+				/* HIFI DSP */
+				SC_R_DSP
+				SC_R_DSP_RAM
+			>;
+			/* Pads that will be transferred between M41 and AP */
+			pads-m41-ap = <
+				SC_P_MIPI_CSI0_GPIO0_00
+				SC_P_MIPI_CSI0_GPIO0_01
+				SC_P_LVDS1_I2C1_SCL
+				SC_P_LVDS1_I2C1_SDA
+			>;
 			pads = <
 				/* i2c1_lvds1 */
 				SC_P_LVDS1_I2C1_SCL
@@ -119,7 +225,55 @@
 				SC_P_UART1_CTS_B
 				SC_P_UART1_RTS_B
 				SC_P_QSPI1A_DQS
+				/* pciea */
+				SC_P_PCIE_CTRL0_CLKREQ_B
+				SC_P_PCIE_CTRL0_WAKE_B
+				SC_P_PCIE_CTRL0_PERST_B
+				SC_P_LVDS1_I2C0_SDA
+				SC_P_USDHC2_RESET_B
+				/*usbotgs typec */
+				SC_P_QSPI1A_SS0_B
+				SC_P_USB_SS3_TC3
+				SC_P_QSPI1A_DATA0
+				/* isl29023 */
+				SC_P_USDHC2_WP
+				SC_P_MIPI_CSI0_GPIO0_00
+				SC_P_MIPI_CSI0_GPIO0_01
+
+				/* SAI0 */
+				SC_P_SPI0_CS1
+				SC_P_SPI2_CS1
+				SC_P_SAI1_RXFS
+				SC_P_SAI1_RXC
+
+				/* ESAI0 */
+				SC_P_ESAI0_FSR
+				SC_P_ESAI0_FST
+				SC_P_ESAI0_SCKR
+				SC_P_ESAI0_SCKT
+				SC_P_ESAI0_TX0
+				SC_P_ESAI0_TX1
+				SC_P_ESAI0_TX2_RX3
+				SC_P_ESAI0_TX3_RX2
+				SC_P_ESAI0_TX4_RX1
+				SC_P_ESAI0_TX5_RX0
+
+				/* lvds pwm */
+				SC_P_LVDS1_GPIO00
 				>;
+
+			gpios = <&gpio1 13 GPIO_ACTIVE_LOW>,
+				<&gpio1 27 GPIO_ACTIVE_LOW>,
+				<&gpio1 28 GPIO_ACTIVE_LOW>,
+				<&gpio4 6 GPIO_ACTIVE_LOW>,
+				<&gpio4 9 GPIO_ACTIVE_LOW>,
+				<&gpio4 11 GPIO_ACTIVE_HIGH>,
+				<&gpio4 19 GPIO_ACTIVE_HIGH>,
+				<&gpio4 22 GPIO_ACTIVE_LOW>,
+				<&gpio4 26 GPIO_ACTIVE_HIGH>,
+				<&gpio4 25 GPIO_ACTIVE_HIGH>,
+				<&gpio4 27 GPIO_ACTIVE_LOW>,
+				<&gpio4 29 GPIO_ACTIVE_LOW>;
 		};
 	};
 
@@ -129,7 +283,7 @@
 			compatible = "shared-dma-pool";
 			reusable;
 			size = <0 0x28000000>;
-			alloc-ranges = <0 0xd0000000 0 0x28000000>;
+			alloc-ranges = <0 0xa0000000 0 0x40000000>;
 			linux,cma-default;
 		};
 	};
@@ -149,6 +303,104 @@
 		status = "disabled";
 	};
 
+	irqsteer_cm41: irqsteer_cm41@0x51080000 {
+		reg = <0x0 0x51080000 0x0 0x10000>;
+		xen,passthrough;
+	};
+
+	mu_rpmsg1_b: mu_rpmsg1_b@0x5d2a0000 {
+		reg = <0x0 0x5d2a0000 0x0 0x10000>;
+		xen,passthrough;
+	};
+
+	dsp_mu_b: dsp_mu_b@0x5d310000 {
+		reg = <0x0 0x5d310000 0x0 0x10000>;
+		xen,passthrough;
+	};
+
+	decoder_boot_mem: decoder_boot_mem@0x84000000 {
+		xen,passthrough;
+		reg = <0 0x84000000 0 0x2000000>;
+	};
+
+	encoder_boot_mem: encoder_boot_mem@0x86000000 {
+		xen,passthrough;
+		reg = <0 0x86000000 0 0x400000>;
+	};
+
+	rpmsg_reserved_mem: rpmsg_reserved_mem@90000000 {
+		xen,passthrough;
+		reg = <0x0 0x90000000 0x0 0x400000>;
+	};
+
+	rpmsg_dma_mem: rpmsg_dma_mem@90400000 {
+		xen,passthrough;
+		reg = <0x0 0x90400000 0x0 0x1c00000>;
+	};
+
+	decoder_rpc_mem: decoder_rpc_mem@0x92000000 {
+		xen,passthrough;
+		reg = <0 0x92000000 0 0x200000>;
+	};
+
+	encoder_rpc_mem: encoder_rpc_mem@0x92200000 {
+		xen,passthrough;
+		reg = <0 0x92200000 0 0x200000>;
+	};
+
+	dsp_reserved_mem: dsp@0x92400000 {
+		xen,passthrough;
+		reg = <0 0x92400000 0 0x2000000>;
+	};
+	encoder_reserved_mem: encoder_reserved_mem@0x94400000 {
+		xen,passthrough;
+		reg = <0 0x94400000 0 0x800000>;
+	};
+
+	/* This piece memory is used by M41, M40 is not covered */
+	m41_mem: m41_mem@0x94400000 {
+		xen,passthrough;
+		reg = <0 0x88800000 0 0x7800000>;
+	};
+
+	gpio4_dummy: gpio4_dummy@0{
+		/* Passthrough gpio4 interrupt to DomU */
+		interrupts = <GIC_SPI 140 IRQ_TYPE_LEVEL_HIGH>;
+		xen,passthrough;
+	};
+
+	/* Interrupt 33 is not used, use it virtual PL031 */
+	rtc0: rtc@23000000 {
+		interrupts = <GIC_SPI 1 IRQ_TYPE_LEVEL_HIGH>;
+		xen,passthrough;
+	};
+};
+
+&mu_rpmsg1 {
+	xen,passthrough;
+};
+
+&rpmsg1 {
+	/* Let xen not create mapping form dom0 */
+	/delete-property/ reg;
+	status = "disabled";
+};
+
+&rpmsg {
+	/delete-property/ reg;
+	status = "disabled";
+};
+
+&mu_6_lpcg {
+	xen,passthrough;
+};
+
+&mu_6_lpcg_b {
+	xen,passthrough;
+};
+
+&mu_7_lpcg_b {
+	xen,passthrough;
 };
 
 &usbotg1_lpcg {
@@ -167,6 +419,19 @@
 	xen,passthrough;
 };
 
+/*
+ * DomU CM41 use this, but DomU OS not need this,
+ * because smmu is enabled for CM41, so need to
+ *create the lpuart2 mapping in SMMU
+ */
+&lpuart2 {
+	xen,passthrough;
+};
+
+&lpuart2_lpcg {
+	xen,passthrough;
+};
+
 &di_lvds1_lpcg {
 	xen,passthrough;
 };
@@ -178,15 +443,43 @@
 &edma01 {
 	#stream-id-cells = <1>;
 	xen,passthrough;
-	fsl,sc_rsrc_id = <SC_R_DMA_0_CH14>,
-			 <SC_R_DMA_0_CH15>;
 };
 
-/* SMMU */
+&edma20 {
+	#stream-id-cells = <1>;
+	xen,passthrough;
+	/* Put edma20 and edma21 resource here */
+	fsl,sc_rsrc_id = <SC_R_DMA_2_CH0>,
+			 <SC_R_DMA_2_CH1>,
+			 <SC_R_DMA_2_CH2>,
+			 <SC_R_DMA_2_CH3>,
+			 <SC_R_DMA_2_CH4>,
+			 <SC_R_DMA_2_CH5>,
+			 <SC_R_DMA_2_CH6>,
+			 <SC_R_DMA_2_CH7>,
+			 <SC_R_DMA_2_CH12>,
+			 <SC_R_DMA_2_CH13>;
+};
+
+&edma21 {
+	xen,passthrough;
+};
+
+&edma24 {
+	xen,passthrough;
+};
+
+/*
+ * SMMU, for simplity, we put all all the resources needs to programmed
+ * for VPU under vpu_decoder node, then in cfg file only add vpu_decoder
+ * in dt_dev is enough.
+ */
 &smmu {
-	mmu-masters = <&dpu2 0x13>, <&gpu_3d1 0x15>,
+	mmu-masters = <&dpu2 0x13>, <&gpu_3d1 0x15>, <&edma20 0x14>,
 		      <&usdhc1 0x12>, <&usbotg1 0x11>,
-		      <&edma01 0x10>;
+		      <&edma01 0x10>, <&pciea 0x08>,
+		      <&vpu_decoder 0x7>, <&crypto 0x6>, <&isi_0 0x5>,
+		      <&usbotg3 0x4>, <&dsp 0x3>;
 };
 
 &lvds_region2 {
@@ -209,11 +502,6 @@
 	xen,passthrough;
 };
 
-&crypto {
-	/* Met CAAM failure on A0, disable it first */
-	status = "disabled";
-};
-
 &dpu2_intsteer {
 	xen,passthrough;
 };
@@ -222,6 +510,10 @@
 	xen,passthrough;
 	#stream-id-cells = <1>;
 	iommus = <&smmu>;
+};
+
+&pixel_combiner2 {
+	xen,passthrough;
 };
 
 &prg10 {
@@ -297,8 +589,8 @@
 
 &imx8_gpu_ss {
 	cores = <&gpu_3d0>;
-	/delete-property/ reg;
-	/delete-property/ reg-names;
+	reg = <0x0 0xa0000000 0x0 0x40000000>, <0x0 0x0 0x0 0x10000000>;
+	reg-names = "phys_baseaddr", "contiguous_mem";
 };
 
 &sata {
@@ -327,5 +619,311 @@
 
 &usbphy1 {
 	reg = <0x0 0x5b100000 0x0 0x1000>;
+	xen,passthrough;
+};
+
+&hsio {
+	xen,passthrough;
+};
+
+&hsio_pcie_x2_lpcg {
+	xen,passthrough;
+};
+
+&hsio_phy_x2_lpcg {
+	xen,passthrough;
+};
+
+&hsio_pcie_x2_crr2_lpcg {
+	xen,passthrough;
+};
+
+&hsio_pcie_x1_lpcg {
+	xen,passthrough;
+};
+
+&pciea {
+       #stream-id-cells = <1>;
+       iommus = <&smmu>;
+       xen,passthrough;
+       fsl,sc_rsrc_id = <SC_R_PCIE_A>;
+};
+
+&pcieb {
+       xen,passthrough;
+};
+
+&gpio1 {
+	xen,shared;
+};
+
+&gpt0 {
+	/delete-property/ interrupts;
+	status = "disabled";
+};
+
+&gpio4 {
+	/*
+	 * Use GPT0 interrupt for hack
+	 * This could be removed when interrupt sharing be supported.
+	 */
+	interrupts = <GIC_SPI 80 IRQ_TYPE_LEVEL_HIGH>;
+	xen,domu-irq;
+	xen,shared;
+};
+
+&dsp {
+       xen,passthrough;
+       #stream-id-cells = <1>;
+       iommus = <&smmu>;
+};
+
+&mu13 {
+	xen,passthrough;
+};
+
+&mu_m0 {
+	xen,passthrough;
+};
+
+&mu1_m0 {
+	xen,passthrough;
+};
+
+&mu2_m0 {
+	xen,passthrough;
+};
+
+&vpu_decoder {
+       #stream-id-cells = <1>;
+       iommus = <&smmu>;
+       xen,passthrough;
+       fsl,sc_rsrc_id = <SC_R_VPU_PID0>,
+			<SC_R_VPU_PID1>,
+			<SC_R_VPU_PID2>,
+			<SC_R_VPU_PID3>,
+			<SC_R_VPU_PID4>,
+			<SC_R_VPU_PID5>,
+			<SC_R_VPU_PID6>,
+			<SC_R_VPU_PID7>,
+			<SC_R_VPU_DEC_0>,
+			<SC_R_VPU_ENC_0>,
+			<SC_R_VPU_ENC_1>,
+			<SC_R_VPU_TS_0>;
+};
+
+&vpu_decoder_csr {
+	xen,passthrough;
+};
+
+&vpu_encoder {
+       iommus = <&smmu>;
+       #stream-id-cells = <1>;
+       xen,passthrough;
+};
+
+&{/vpu_encoder@2d000000/core0@1020000} {
+	xen,passthrough;
+};
+
+&{/vpu_encoder@2d000000/core1@1040000} {
+	xen,passthrough;
+};
+
+&crypto {
+	xen,passthrough;
+	iommus = <&smmu>;
+	#stream-id-cells = <1>;
+	/* JR1 is not used by Linux */
+	fsl,sc_rsrc_id = <SC_R_CAAM_JR2>, <SC_R_CAAM_JR2_OUT>,
+			 <SC_R_CAAM_JR3>, <SC_R_CAAM_JR3_OUT>;
+};
+
+&sec_jr2 {
+	xen,passthrough;
+};
+
+&sec_jr3 {
+	xen,passthrough;
+};
+
+&caam_sm {
+	xen,passthrough;
+};
+
+&i2c0 {
+	isl29023@44 {
+		xen,passthrough;
+	};
+
+	fxos8700@1e {
+		xen,passthrough;
+	};
+
+	fxas2100x@20 {
+		xen,passthrough;
+	};
+
+	mpl3115@60 {
+		xen,passthrough;
+	};
+
+	typec_ptn5110: typec@50 {
+		xen,passthrough;
+	};
+};
+
+/* Camera */
+&img_pdma_0_lpcg {
+	xen,passthrough;
+};
+
+&img_pdma_1_lpcg {
+	xen,passthrough;
+};
+
+&img_pdma_2_lpcg {
+	xen,passthrough;
+};
+
+&img_pdma_3_lpcg {
+	xen,passthrough;
+};
+
+&mipi_csi_0_lpcg {
+	xen,passthrough;
+};
+
+&img_pxl_link_csi0_lpcg {
+	xen,passthrough;
+};
+
+&gpio0_mipi_csi0 {
+	xen,passthrough;
+};
+
+&irqsteer_csi0 {
+	xen,passthrough;
+};
+
+&isi_0 {
+	xen,passthrough;
+	#stream-id-cells = <1>;
+	iommus = <&smmu>;
+	fsl,sc_rsrc_id = <SC_R_ISI_CH0>,
+			 <SC_R_ISI_CH1>,
+			 <SC_R_ISI_CH2>,
+			 <SC_R_ISI_CH3>;
+};
+
+&isi_1 {
+	xen,passthrough;
+};
+
+&isi_2 {
+	xen,passthrough;
+};
+
+&isi_3 {
+	xen,passthrough;
+};
+
+&mipi_csi_0 {
+	xen,passthrough;
+};
+
+&i2c0_mipi_csi0 {
+	xen,passthrough;
+};
+
+&isi_4 {
+	status = "okay";
+};
+
+&isi_5 {
+	status = "okay";
+};
+
+&isi_6 {
+	status = "okay";
+};
+
+&isi_7 {
+	status = "okay";
+};
+
+&mipi_csi_1 {
+	status = "okay";
+};
+
+&i2c0_mipi_csi1 {
+	status = "okay";
+};
+
+&usbotg3_lpcg {
+	xen,passthrough;
+};
+
+&usbotg3 {
+	xen,passthrough;
+	#stream-id-cells = <1>;
+	iommus = <&smmu>;
+};
+
+/delete-node/ &{/sound-cs42888};
+
+&acm {
+	xen,passthrough;
+};
+
+&sai0 {
+	xen,passthrough;
+};
+
+&aud_sai_0_lpcg {
+	xen,passthrough;
+};
+
+&esai0 {
+	xen,passthrough;
+};
+
+&asrc0 {
+	xen,passthrough;
+};
+
+&aud_asrc_0_lpcg {
+	xen,passthrough;
+};
+
+&aud_esai_0_lpcg {
+	xen,passthrough;
+};
+
+&aud_pll_clk0_lpcg {
+	xen,passthrough;
+};
+
+&aud_pll_clk1_lpcg {
+	xen,passthrough;
+};
+
+&aud_mclkout0_lpcg {
+	xen,passthrough;
+};
+
+&aud_mclkout1_lpcg {
+	xen,passthrough;
+};
+
+&aud_rec_clk0_lpcg {
+	xen,passthrough;
+};
+
+&aud_rec_clk1_lpcg {
+	xen,passthrough;
+};
+
+&lvds1_pwm {
 	xen,passthrough;
 };

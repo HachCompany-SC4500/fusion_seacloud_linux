@@ -182,6 +182,7 @@ struct hdp_mem {
 	void __iomem *regs_base; /* Controller regs base */
 	void __iomem *ss_base; /* HDP Subsystem regs base */
 	void __iomem *rst_base; /* HDP Subsystem reset base */
+	struct mutex mutex;
 };
 
 struct hdp_rw_func {
@@ -202,6 +203,7 @@ typedef struct {
 	CDN_BUS_TYPE bus_type;
 	u32 tmp;
 	u32 edp; /* use eDP */
+	u8 phy_init;
 
 	struct mutex mutex;	//mutex may replace running
 	struct hdp_mem *mem;

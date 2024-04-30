@@ -236,7 +236,7 @@
 
 /* Misc definitions */
 #define MAX310X_FIFO_SIZE		(128)
-#define MAX310x_REV_MASK		(0xfc)
+#define MAX310x_REV_MASK		(0xf8)
 
 /* MAX3107 specific */
 #define MAX3107_REV_ID			(0xa0)
@@ -1323,6 +1323,8 @@ static int max310x_spi_probe(struct spi_device *spi)
 	if (spi->dev.of_node) {
 		const struct of_device_id *of_id =
 			of_match_device(max310x_dt_ids, &spi->dev);
+		if (!of_id)
+			return -ENODEV;
 
 		devtype = (struct max310x_devtype *)of_id->data;
 	} else {

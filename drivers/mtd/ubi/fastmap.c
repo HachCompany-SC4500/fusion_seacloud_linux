@@ -1101,6 +1101,26 @@ free_fm_sb:
 	goto out;
 }
 
+int ubi_fastmap_init_checkmap(struct ubi_volume *vol, int leb_count)
+{
+	struct ubi_device *ubi = vol->ubi;
+
+	if (!ubi->fast_attach)
+		return 0;
+
+	vol->checkmap = kcalloc(BITS_TO_LONGS(leb_count), sizeof(unsigned long),
+				GFP_KERNEL);
+	if (!vol->checkmap)
+		return -ENOMEM;
+
+	return 0;
+}
+
+void ubi_fastmap_destroy_checkmap(struct ubi_volume *vol)
+{
+	kfree(vol->checkmap);
+}
+
 /**
  * ubi_write_fastmap - writes a fastmap.
  * @ubi: UBI device object
@@ -1667,7 +1687,7 @@ err:
 
 	ret = invalidate_fastmap(ubi);
 	if (ret < 0) {
-		ubi_err(ubi, "Unable to invalidiate current fastmap!");
+		ubi_err(ubi, "Unable to invalidate current fastmap!");
 		ubi_ro_mode(ubi);
 	} else {
 		return_fm_pebs(ubi, old_fm);

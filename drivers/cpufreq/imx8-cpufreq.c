@@ -131,7 +131,8 @@ static void imx8_cpufreq_ready(struct cpufreq_policy *policy)
 	unsigned int cluster_id = topology_physical_package_id(policy->cpu);
 
 	if (of_find_property(np, "#cooling-cells", NULL)) {
-		cdev[cluster_id] = of_cpufreq_cooling_register(np, policy);
+		cdev[cluster_id] = of_cpufreq_cooling_register(np,
+			policy->related_cpus);
 
 		if (IS_ERR(cdev[cluster_id]) && PTR_ERR(cdev[cluster_id]) != -ENOSYS) {
 			pr_err("cpu%d is not running as cooling device: %ld\n",

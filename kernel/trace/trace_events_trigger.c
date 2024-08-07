@@ -22,7 +22,6 @@
 #include <linux/ctype.h>
 #include <linux/mutex.h>
 #include <linux/slab.h>
-#include <linux/rculist.h>
 
 #include "trace.h"
 
@@ -642,7 +641,6 @@ event_trigger_callback(struct event_command *cmd_ops,
 	trigger_data->count = -1;
 	trigger_data->ops = trigger_ops;
 	trigger_data->cmd_ops = cmd_ops;
-	trigger_data->private_data = file;
 	INIT_LIST_HEAD(&trigger_data->list);
 	INIT_LIST_HEAD(&trigger_data->named_list);
 
@@ -744,10 +742,8 @@ int set_trigger_filter(char *filter_str,
 
 	/* The filter is for the 'trigger' event, not the triggered event */
 	ret = create_event_filter(file->event_call, filter_str, false, &filter);
-	/*
-	 * If create_event_filter() fails, filter still needs to be freed.
-	 * Which the calling code will do with data->filter.
-	 */
+	if (ret)
+		goto out;
  assign:
 	tmp = rcu_access_pointer(data->filter);
 
@@ -1049,12 +1045,7 @@ static struct event_command trigger_traceoff_cmd = {
 static void
 snapshot_trigger(struct event_trigger_data *data, void *rec)
 {
-	struct trace_event_file *file = data->private_data;
-
-	if (file)
-		tracing_snapshot_instance(file->tr);
-	else
-		tracing_snapshot();
+	tracing_snapshot();
 }
 
 static void
@@ -1076,7 +1067,7 @@ register_snapshot_trigger(char *glob, struct event_trigger_ops *ops,
 {
 	int ret = register_trigger(glob, ops, data, file);
 
-	if (ret > 0 && tracing_alloc_snapshot_instance(file->tr) != 0) {
+	if (ret > 0 && tracing_alloc_snapshot() != 0) {
 		unregister_trigger(glob, ops, data, file);
 		ret = 0;
 	}

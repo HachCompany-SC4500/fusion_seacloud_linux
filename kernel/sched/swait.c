@@ -1,5 +1,4 @@
-// SPDX-License-Identifier: GPL-2.0
-#include <linux/sched/signal.h>
+#include <linux/sched.h>
 #include <linux/swait.h>
 
 void __init_swait_queue_head(struct swait_queue_head *q, const char *name,

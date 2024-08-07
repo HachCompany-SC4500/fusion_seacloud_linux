@@ -371,7 +371,7 @@ _ReadFromNode (
     {
         kfree(Node->temp);
 
-        if ( ( retval = kmalloc ( sizeof (char ) * remaining , GFP_ATOMIC ) ) == NULL )
+        if ( ( retval = kmalloc ( sizeof (char ) * remaining , GFP_KERNEL ) ) == NULL )
             return NULL;
 
         Node->temp = retval;
@@ -518,23 +518,22 @@ _DebugFSPrint (
 {
     char buffer[MAX_LINE_SIZE] ;
     int len ;
-    ssize_t res = 0;
+    ssize_t res=0;
 
-    if ( gc_dbgfs.currentNode )
+    len = vsnprintf ( buffer , sizeof (buffer ) , Message , *( va_list * ) Arguments ) ;
+
+    buffer[len] = '\0' ;
+
+    /* Add end-of-line if missing. */
+    if ( buffer[len - 1] != '\n' )
     {
-        len = vsnprintf ( buffer , sizeof (buffer ) , Message , *( va_list * ) Arguments ) ;
-
+        buffer[len ++] = '\n' ;
         buffer[len] = '\0' ;
-        /* Add end-of-line if missing. */
-        if ( buffer[len - 1] != '\n' )
-        {
-             buffer[len ++] = '\n' ;
-             buffer[len] = '\0' ;
-        }
-
-       res = _AppendString ( gc_dbgfs.currentNode , buffer , len ) ;
-       wake_up_interruptible ( gcmkNODE_READQ ( gc_dbgfs.currentNode ) ) ; /* blocked in read*/
     }
+
+    res = _AppendString ( gc_dbgfs.currentNode , buffer , len ) ;
+
+    wake_up_interruptible ( gcmkNODE_READQ ( gc_dbgfs.currentNode ) ) ; /* blocked in read*/
 
     return res;
 }
@@ -959,7 +958,7 @@ gckDEBUGFS_Print (
                           ...
                           )
 {
-    ssize_t _debugfs_res = 0;
+    ssize_t _debugfs_res;
     gcmkDEBUGFS_PRINT ( _GetArgumentSize ( Message ) , Message ) ;
     return _debugfs_res;
 }

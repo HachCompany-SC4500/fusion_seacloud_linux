@@ -209,46 +209,28 @@ int sdhci_pltfm_unregister(struct platform_device *pdev)
 EXPORT_SYMBOL_GPL(sdhci_pltfm_unregister);
 
 #ifdef CONFIG_PM_SLEEP
-int sdhci_pltfm_suspend(struct device *dev)
+static int sdhci_pltfm_suspend(struct device *dev)
 {
 	struct sdhci_host *host = dev_get_drvdata(dev);
-	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
 	int ret;
 
 	if (host->tuning_mode != SDHCI_TUNING_MODE_3)
 		mmc_retune_needed(host->mmc);
 
 	ret = sdhci_suspend_host(host);
-	if (ret)
-		return ret;
-
-	clk_disable_unprepare(pltfm_host->clk);
-
 	pinctrl_pm_select_sleep_state(dev);
-
-	return 0;
-}
-EXPORT_SYMBOL_GPL(sdhci_pltfm_suspend);
-
-int sdhci_pltfm_resume(struct device *dev)
-{
-	struct sdhci_host *host = dev_get_drvdata(dev);
-	struct sdhci_pltfm_host *pltfm_host = sdhci_priv(host);
-	int ret;
-
-	pinctrl_pm_select_default_state(dev);
-
-	ret = clk_prepare_enable(pltfm_host->clk);
-	if (ret)
-		return ret;
-
-	ret = sdhci_resume_host(host);
-	if (ret)
-		clk_disable_unprepare(pltfm_host->clk);
 
 	return ret;
 }
-EXPORT_SYMBOL_GPL(sdhci_pltfm_resume);
+
+static int sdhci_pltfm_resume(struct device *dev)
+{
+	struct sdhci_host *host = dev_get_drvdata(dev);
+
+	pinctrl_pm_select_default_state(dev);
+
+	return sdhci_resume_host(host);
+}
 #endif
 
 const struct dev_pm_ops sdhci_pltfm_pmops = {

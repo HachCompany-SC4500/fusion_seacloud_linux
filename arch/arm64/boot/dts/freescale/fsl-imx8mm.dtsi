@@ -1,5 +1,5 @@
 /*
- * Copyright 2017-2019 NXP
+ * Copyright 2017-2018 NXP
  *
  * This program is free software; you can redistribute it and/or
  * modify it under the terms of the GNU General Public License
@@ -57,10 +57,10 @@
 				compatible = "arm,idle-state";
 				arm,psci-suspend-param = <0x0010033>;
 				local-timer-stop;
-				entry-latency-us = <1000>;
-				exit-latency-us = <700>;
-				min-residency-us = <2700>;
-				wakeup-latency-us = <1500>;
+				entry-latency-us = <25000>;
+				exit-latency-us = <10000>;
+				min-residency-us = <30000>;
+				wakeup-latency-us = <15000>;
 			};
 		};
 	};
@@ -108,10 +108,6 @@
 			     <GIC_PPI 10 (GIC_CPU_MASK_SIMPLE(6) | IRQ_TYPE_LEVEL_LOW)>; /* Hypervisor */
 		clock-frequency = <8000000>;
 		arm,no-tick-in-suspend;
-		interrupt-parent = <&gic>;
-	};
-
-	pmu {
 		interrupt-parent = <&gic>;
 	};
 
@@ -205,8 +201,7 @@
 			domain-id = <0>;
 			#power-domain-cells = <0>;
 			domain-name = "HSIO_PD";
-			clocks = <&clk IMX8MM_CLK_USB1_CTRL_ROOT>,
-				 <&clk IMX8MM_CLK_SIM_HSIO>;
+			clocks = <&clk IMX8MM_CLK_USB1_CTRL_ROOT>;
 
 			pcie0_pd: power-domain@1 {
 				domain-id = <1>;
@@ -311,7 +306,6 @@
 			<&clk IMX8MM_CLK_DISP_APB_ROOT>;
 		clock-names = "mipi_clk", "phy_clk", "disp_axi", "disp_apb";
 		bus-width = <4>;
-		csi-gpr = <&dispmix_gpr>;
 		power-domains = <&mipi_pd>;
 		status = "disabled";
 	};
@@ -588,7 +582,7 @@
 		};
 
 		rpmsg: rpmsg{
-			compatible = "fsl,imx8mq-rpmsg";
+			compatible = "fsl,imx8qm-rpmsg";
 			status = "disabled";
 		};
 	};
@@ -608,7 +602,7 @@
 	};
 
 	usbotg1: usb@32e40000 {
-		compatible = "fsl,imx8mm-usb", "fsl,imx7d-usb", "fsl,imx27-usb";
+		compatible = "fsl,imx7d-usb", "fsl,imx27-usb";
 		reg = <0x0 0x32e40000 0x0 0x200>;
 		interrupts = <GIC_SPI 40 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk IMX8MM_CLK_USB1_CTRL_ROOT>;
@@ -638,7 +632,7 @@
 	};
 
 	usbotg2: usb@32e50000 {
-		compatible = "fsl,imx8mm-usb", "fsl,imx7d-usb", "fsl,imx27-usb";
+		compatible = "fsl,imx7d-usb", "fsl,imx27-usb";
 		reg = <0x0 0x32e50000 0x0 0x200>;
 		interrupts = <GIC_SPI 41 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk IMX8MM_CLK_USB1_CTRL_ROOT>;
@@ -668,7 +662,7 @@
 	};
 
 	usdhc1: mmc@30b40000 {
-		compatible = "fsl,imx8mq-usdhc", "fsl,imx8qm-usdhc";
+		compatible = "fsl,imx8mq-usdhc", "fsl,imx7d-usdhc";
 		reg = <0x0 0x30b40000 0x0 0x10000>;
 		interrupts = <GIC_SPI 22 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk IMX8MM_CLK_DUMMY>,
@@ -684,7 +678,7 @@
 	};
 
 	usdhc2: mmc@30b50000 {
-		compatible = "fsl,imx8mq-usdhc", "fsl,imx8qm-usdhc";
+		compatible = "fsl,imx8mq-usdhc", "fsl,imx7d-usdhc";
 		reg = <0x0 0x30b50000 0x0 0x10000>;
 		interrupts = <GIC_SPI 23 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk IMX8MM_CLK_DUMMY>,
@@ -698,7 +692,7 @@
 	};
 
 	usdhc3: mmc@30b60000 {
-		compatible = "fsl,imx8mq-usdhc", "fsl,imx8qm-usdhc";
+		compatible = "fsl,imx8mq-usdhc", "fsl,imx7d-usdhc";
 		reg = <0x0 0x30b60000 0x0 0x10000>;
 		interrupts = <GIC_SPI 24 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk IMX8MM_CLK_DUMMY>,
@@ -725,7 +719,7 @@
 		clock-names = "bus", "mclk0", "mclk1", "mclk2", "mclk3";
 		dmas = <&sdma2 0 2 0>, <&sdma2 1 2 0>;
 		dma-names = "rx", "tx";
-		fsl,dataline = <0 0xff 0xff>;
+		fsl,dataline = <0xff 0xff>;
 		status = "disabled";
 	};
 
@@ -770,7 +764,7 @@
 		dmas = <&sdma2 8 2 0>, <&sdma2 9 2 0>;
 		dma-names = "rx", "tx";
 		fsl,shared-interrupt;
-		fsl,dataline = <0 0xf 0xf>;
+		fsl,dataline = <0xf 0xf>;
 		status = "disabled";
 	};
 
@@ -798,14 +792,11 @@
 			     <GIC_SPI 109 IRQ_TYPE_LEVEL_HIGH>,
 			     <GIC_SPI 110 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk IMX8MM_CLK_PDM_IPG>,
-			 <&clk IMX8MM_CLK_PDM_ROOT>,
-			 <&clk IMX8MM_AUDIO_PLL1_OUT>,
-			 <&clk IMX8MM_AUDIO_PLL2_OUT>,
-			 <&clk IMX8MM_CLK_EXT3>;
-		clock-names = "ipg_clk", "ipg_clk_app",
-			      "pll8k", "pll11k", "clkext3";
+			 <&clk IMX8MM_CLK_PDM_ROOT>;
+		clock-names = "ipg_clk", "ipg_clk_app";
 		dmas = <&sdma2 24 26 0x80000000>;
 		dma-names = "rx";
+		fsl,shared-interrupt;
 		status = "disabled";
 	};
 
@@ -904,9 +895,6 @@
 		interrupts = <GIC_SPI 107 IRQ_TYPE_LEVEL_HIGH>;
 		clocks = <&clk IMX8MM_CLK_QSPI_ROOT>;
 		clock-names = "fspi";
-		assigned-clock-rates = <80000000>;
-		assigned-clocks = <&clk IMX8MM_CLK_QSPI_SRC>;
-		assigned-clock-parents = <&clk IMX8MM_SYS_PLL1_800M>;
 		status = "disabled";
 	};
 
@@ -919,8 +907,6 @@
 		clocks = <&clk IMX8MM_CLK_ECSPI1_ROOT>,
 			<&clk IMX8MM_CLK_ECSPI1_ROOT>;
 		clock-names = "ipg", "per";
-		dmas = <&sdma1 0 7 1>, <&sdma1 1 7 2>;
-		dma-names = "rx", "tx";
 		status = "disabled";
 	};
 
@@ -933,8 +919,6 @@
 		clocks = <&clk IMX8MM_CLK_ECSPI2_ROOT>,
 			<&clk IMX8MM_CLK_ECSPI2_ROOT>;
 		clock-names = "ipg", "per";
-		dmas = <&sdma1 2 7 1>, <&sdma1 3 7 2>;
-		dma-names = "rx", "tx";
 		status = "disabled";
 	};
 
@@ -947,8 +931,6 @@
 		clocks = <&clk IMX8MM_CLK_ECSPI3_ROOT>,
 			<&clk IMX8MM_CLK_ECSPI3_ROOT>;
 		clock-names = "ipg", "per";
-		dmas = <&sdma1 4 7 1>, <&sdma1 5 7 2>;
-		dma-names = "rx", "tx";
 		status = "disabled";
 	};
 
@@ -1229,7 +1211,7 @@
 
 	caam_sm: caam-sm@00100000 {
 		compatible = "fsl,imx6q-caam-sm";
-		reg = <0 0x00100000 0 0x8000>;
+		reg = <0 0x00100000 0 0x7fff>;
 	};
 
 	caam_snvs: caam-snvs@30370000 {
@@ -1245,43 +1227,14 @@
 		internal-boot-tamper = "enabled";
 		external-pin-tamper = "disabled";
 	};
-
-	dma_apbh: dma-apbh@33000000 {
-		compatible = "fsl,imx7d-dma-apbh", "fsl,imx28-dma-apbh";
-		reg = <0 0x33000000 0 0x2000>;
-		interrupts = <GIC_SPI 12 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI 12 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI 12 IRQ_TYPE_LEVEL_HIGH>,
-			     <GIC_SPI 12 IRQ_TYPE_LEVEL_HIGH>;
-		interrupt-names = "gpmi0", "gpmi1", "gpmi2", "gpmi3";
-		#dma-cells = <1>;
-		dma-channels = <4>;
-		clocks = <&clk IMX8MM_CLK_NAND_USDHC_BUS_RAWNAND_CLK>;
-	};
-
-	gpmi: gpmi-nand@33002000{
-		compatible = "fsl,imx7d-gpmi-nand";
-		#address-cells = <1>;
-		#size-cells = <1>;
-		reg = <0 0x33002000 0 0x2000>, <0 0x33004000 0 0x4000>;
-		reg-names = "gpmi-nand", "bch";
-		interrupts = <GIC_SPI 14 IRQ_TYPE_LEVEL_HIGH>;
-		interrupt-names = "bch";
-		clocks = <&clk IMX8MM_CLK_NAND_ROOT>,
-			<&clk IMX8MM_CLK_NAND_USDHC_BUS_RAWNAND_CLK>;
-		clock-names = "gpmi_io", "gpmi_bch_apb";
-		dmas = <&dma_apbh 0>;
-		dma-names = "rx-tx";
-		status = "disabled";
-	};
 };
 
 &A53_0 {
 	operating-points = <
 		/* kHz    uV */
 		1800000 1000000
-		1600000 950000
-		1200000 850000
+		1600000 900000
+		1200000 800000
 	>;
 	clocks = <&clk IMX8MM_CLK_A53_DIV>, <&clk IMX8MM_CLK_A53_SRC>,
 		<&clk IMX8MM_ARM_PLL>, <&clk IMX8MM_ARM_PLL_OUT>,

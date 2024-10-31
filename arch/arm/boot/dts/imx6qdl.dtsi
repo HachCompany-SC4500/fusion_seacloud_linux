@@ -13,18 +13,9 @@
 #include <dt-bindings/clock/imx6qdl-clock.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 
-/ {
-	#address-cells = <1>;
-	#size-cells = <1>;
-	/*
-	 * The decompressor and also some bootloaders rely on a
-	 * pre-existing /chosen node to be available to insert the
-	 * command line and merge other ATAGS info.
-	 * Also for U-Boot there must be a pre-existing /memory node.
-	 */
-	chosen {};
-	memory { device_type = "memory"; reg = <0 0>; };
+#include "skeleton.dtsi"
 
+/ {
 	aliases {
 		ethernet0 = &fec;
 		can0 = &can1;
@@ -89,7 +80,7 @@
 
 		caam_sm: caam-sm@00100000 {
 			compatible = "fsl,imx6q-caam-sm";
-			reg = <0x00100000 0x4000>;
+			reg = <0x00100000 0x3fff>;
 		};
 
 		dma_apbh: dma-apbh@00110000 {
@@ -171,7 +162,7 @@
 				 <&clks IMX6QDL_CLK_GPU3D_CORE>,
 				 <&clks IMX6QDL_CLK_GPU3D_SHADER>;
 			clock-names = "bus", "core", "shader";
-			power-domains = <&pd_pu>;
+			power-domains = <&gpc 1>;
 		};
 
 		gpu_2d: gpu@00134000 {
@@ -181,7 +172,7 @@
 			clocks = <&clks IMX6QDL_CLK_GPU2D_AXI>,
 				 <&clks IMX6QDL_CLK_GPU2D_CORE>;
 			clock-names = "bus", "core";
-			power-domains = <&pd_pu>;
+			power-domains = <&gpc 1>;
 		};
 
 		ocrams: sram@00900000 {
@@ -224,7 +215,7 @@
 			arm,shared-override;
 		};
 
-		pcie: pcie@1ffc000 {
+		pcie: pcie@0x01000000 {
 			compatible = "fsl,imx6q-pcie", "snps,dw-pcie";
 			reg = <0x01ffc000 0x04000>,
 			      <0x01f00000 0x80000>;
@@ -241,9 +232,9 @@
 			#interrupt-cells = <1>;
 			interrupt-map-mask = <0 0 0 0x7>;
 			interrupt-map = <0 0 0 1 &gpc GIC_SPI 123 IRQ_TYPE_LEVEL_HIGH>,
-					<0 0 0 2 &gpc GIC_SPI 122 IRQ_TYPE_LEVEL_HIGH>,
-					<0 0 0 3 &gpc GIC_SPI 121 IRQ_TYPE_LEVEL_HIGH>,
-					<0 0 0 4 &gpc GIC_SPI 120 IRQ_TYPE_LEVEL_HIGH>;
+			                <0 0 0 2 &gpc GIC_SPI 122 IRQ_TYPE_LEVEL_HIGH>,
+			                <0 0 0 3 &gpc GIC_SPI 121 IRQ_TYPE_LEVEL_HIGH>,
+			                <0 0 0 4 &gpc GIC_SPI 120 IRQ_TYPE_LEVEL_HIGH>;
 			clocks = <&clks IMX6QDL_CLK_PCIE_AXI>,
 				 <&clks IMX6QDL_CLK_LVDS1_GATE>,
 				 <&clks IMX6QDL_CLK_PCIE_REF_125M>;
@@ -501,7 +492,7 @@
 				clocks = <&clks IMX6QDL_CLK_VPU_AXI>,
 					 <&clks IMX6QDL_CLK_MMDC_CH0_AXI>;
 				clock-names = "per", "ahb";
-				power-domains = <&pd_pu>;
+				power-domains = <&gpc 1>;
 				resets = <&src 1>;
 				iram = <&ocram>;
 				status = "disabled";
@@ -521,7 +512,7 @@
 				iramsize = <0x21000>;
 				iram = <&ocram>;
 				resets = <&src 1>;
-				power-domains = <&pd_pu>;
+				power-domains = <&gpc 1>;
 			};
 
 			aipstz@0207c000 { /* AIPSTZ1 */
@@ -722,8 +713,8 @@
 				regulator-1p1 {
 					compatible = "fsl,anatop-regulator";
 					regulator-name = "vdd1p1";
-					regulator-min-microvolt = <1000000>;
-					regulator-max-microvolt = <1200000>;
+					regulator-min-microvolt = <800000>;
+					regulator-max-microvolt = <1375000>;
 					regulator-always-on;
 					anatop-reg-offset = <0x110>;
 					anatop-vol-bit-shift = <8>;
@@ -734,7 +725,7 @@
 					anatop-enable-bit = <0>;
 				};
 
-				anatop_reg_3p0: regulator-3p0@120 {
+				reg_3p0: regulator-3p0@120 {
 					compatible = "fsl,anatop-regulator";
 					regulator-name = "vdd3p0";
 					regulator-min-microvolt = <2625000>;
@@ -751,15 +742,15 @@
 				regulator-2p5 {
 					compatible = "fsl,anatop-regulator";
 					regulator-name = "vdd2p5";
-					regulator-min-microvolt = <2250000>;
+					regulator-min-microvolt = <2000000>;
 					regulator-max-microvolt = <2750000>;
 					regulator-always-on;
 					anatop-reg-offset = <0x130>;
 					anatop-vol-bit-shift = <8>;
 					anatop-vol-bit-width = <5>;
 					anatop-min-bit-val = <0>;
-					anatop-min-voltage = <2100000>;
-					anatop-max-voltage = <2875000>;
+					anatop-min-voltage = <2000000>;
+					anatop-max-voltage = <2750000>;
 					anatop-enable-bit = <0>;
 				};
 
@@ -831,7 +822,7 @@
 				reg = <0x020c9000 0x1000>;
 				interrupts = <0 44 IRQ_TYPE_LEVEL_HIGH>;
 				clocks = <&clks IMX6QDL_CLK_USBPHY1>;
-				phy-3p0-supply = <&anatop_reg_3p0>;
+				phy-3p0-supply = <&reg_3p0>;
 				fsl,anatop = <&anatop>;
 			};
 
@@ -840,7 +831,7 @@
 				reg = <0x020ca000 0x1000>;
 				interrupts = <0 45 IRQ_TYPE_LEVEL_HIGH>;
 				clocks = <&clks IMX6QDL_CLK_USBPHY2>;
-				phy-3p0-supply = <&anatop_reg_3p0>;
+				phy-3p0-supply = <&reg_3p0>;
 				fsl,anatop = <&anatop>;
 			};
 
@@ -877,7 +868,6 @@
 					compatible = "syscon-poweroff";
 					regmap = <&snvs>;
 					offset = <0x38>;
-					value = <0x61>;
 					mask = <0x61>;
 					status = "disabled";
 				};
@@ -909,39 +899,20 @@
 				interrupts = <0 89 IRQ_TYPE_LEVEL_HIGH>,
 					     <0 90 IRQ_TYPE_LEVEL_HIGH>;
 				interrupt-parent = <&intc>;
-				clocks = <&clks IMX6QDL_CLK_IPG>;
-				clock-names = "ipg";
-
-				pgc {
-					#address-cells = <1>;
-					#size-cells = <0>;
-
-					power-domain@0 {
-						reg = <0>;
-						#power-domain-cells = <0>;
-					};
-					pd_pu: power-domain@1 {
-						reg = <1>;
-						#power-domain-cells = <0>;
-						power-supply = <&reg_pu>;
-						clocks = <&clks IMX6QDL_CLK_GPU3D_CORE>,
-						         <&clks IMX6QDL_CLK_GPU3D_SHADER>,
-						         <&clks IMX6QDL_CLK_GPU2D_CORE>,
-						         <&clks IMX6QDL_CLK_GPU2D_AXI>,
-						         <&clks IMX6QDL_CLK_OPENVG_AXI>,
-						         <&clks IMX6QDL_CLK_VPU_AXI>;
-					};
-				};
+				pu-supply = <&reg_pu>;
+				clocks = <&clks IMX6QDL_CLK_GPU3D_CORE>,
+					 <&clks IMX6QDL_CLK_GPU3D_SHADER>,
+					 <&clks IMX6QDL_CLK_GPU2D_CORE>,
+					 <&clks IMX6QDL_CLK_GPU2D_AXI>,
+					 <&clks IMX6QDL_CLK_OPENVG_AXI>,
+					 <&clks IMX6QDL_CLK_VPU_AXI>,
+					 <&clks IMX6QDL_CLK_IPG>;
+				#power-domain-cells = <1>;
 			};
 
 			gpr: iomuxc-gpr@020e0000 {
-				compatible = "fsl,imx6q-iomuxc-gpr", "syscon", "simple-mfd";
+				compatible = "fsl,imx6q-iomuxc-gpr", "syscon";
 				reg = <0x020e0000 0x38>;
-
-				mux: mux-controller {
-					compatible = "mmio-mux";
-					#mux-control-cells = <1>;
-				};
 			};
 
 			iomuxc: iomuxc@020e0000 {
@@ -949,7 +920,7 @@
 				reg = <0x020e0000 0x4000>;
 			};
 
-			ldb: ldb {
+			ldb: ldb@020e0008 {
 				#address-cells = <1>;
 				#size-cells = <0>;
 				compatible = "fsl,imx6q-ldb", "fsl,imx53-ldb";
@@ -1272,14 +1243,10 @@
 			};
 
 			weim: weim@021b8000 {
-				#address-cells = <2>;
-				#size-cells = <1>;
 				compatible = "fsl,imx6q-weim";
 				reg = <0x021b8000 0x4000>;
 				interrupts = <0 14 IRQ_TYPE_LEVEL_HIGH>;
 				clocks = <&clks IMX6QDL_CLK_EIM_SLOW>;
-				fsl,weim-cs-gpr = <&gpr>;
-				status = "disabled";
 			};
 
 			ocotp: ocotp@021bc000 {
@@ -1307,8 +1274,6 @@
 			mipi_csi: mipi_csi@021dc000 { /* MIPI-CSI */
 				compatible = "fsl,imx6q-mipi-csi2";
 				reg = <0x021dc000 0x4000>;
-				#address-cells = <1>;
-				#size-cells = <0>;
 				interrupts = <0 100 0x04>, <0 101 0x04>;
 				clocks = <&clks IMX6QDL_CLK_HSI_TX>,
 					 <&clks IMX6QDL_CLK_EIM_SEL>,
@@ -1322,9 +1287,7 @@
 				status = "disabled";
 			};
 
-			mipi_dsi: mipi@021e0000 { /* MIPI-DSI */
-				#address-cells = <1>;
-				#size-cells = <0>;
+			mipi@021e0000 { /* MIPI-DSI */
 				reg = <0x021e0000 0x4000>;
 				status = "disabled";
 
@@ -1427,10 +1390,6 @@
 
 			ipu1_csi0: port@0 {
 				reg = <0>;
-
-				ipu1_csi0_from_ipu1_csi0_mux: endpoint {
-					remote-endpoint = <&ipu1_csi0_mux_to_ipu1_csi0>;
-				};
 			};
 
 			ipu1_csi1: port@1 {

@@ -309,7 +309,7 @@
 
 #define         I2S_TYPE_A_NUM          0x18
 
-#define         WORK_MAX_NUM		0x30
+#define         WORK_MAX_NUM		0x18
 
 #define		I2S_TX_PERIOD_DONE	0x0
 #define		I2S_RX_PERIOD_DONE	0x1
@@ -330,9 +330,6 @@
 #define		RPMSG_S16_LE		0x0
 #define		RPMSG_S24_LE		0x1
 #define		RPMSG_S32_LE		0x2
-#define		RPMSG_DSD_U16_LE	0x3
-#define		RPMSG_DSD_U24_LE	0x4
-#define		RPMSG_DSD_U32_LE	0x5
 
 #define		RPMSG_CH_LEFT		0x0
 #define		RPMSG_CH_RIGHT		0x1
@@ -394,14 +391,10 @@ struct i2s_info {
 	struct i2s_rpmsg_r       recv_msg;
 
 	struct i2s_rpmsg         rpmsg[I2S_CMD_MAX_NUM];
-	struct i2s_rpmsg         period_done_msg[2];
-	bool                     period_done_msg_enabled[2];
 
 	struct workqueue_struct  *rpmsg_wq;
 	struct work_of_rpmsg	 work_list[WORK_MAX_NUM];
-	int                      work_write_index;
-	int                      work_read_index;
-	int                      msg_drop_count[2];
+	int                      work_index;
 	int                      num_period[2];
 	void                     *callback_param[2];
 	int (*send_message)(struct i2s_rpmsg *msg, struct i2s_info *info);
@@ -417,10 +410,8 @@ struct fsl_rpmsg_i2s {
 	struct platform_device *pdev;
 	struct i2s_info        i2s_info;
 	struct pm_qos_request pm_qos_req;
-	int codec_dummy;
 	int codec_wm8960;
 	int codec_cs42888;
-	int codec_ak4497;
 	int force_lpa;
 	int version;
 	int rates;
@@ -430,7 +421,6 @@ struct fsl_rpmsg_i2s {
 
 #define RPMSG_CODEC_DRV_NAME_WM8960 "rpmsg-audio-codec-wm8960"
 #define RPMSG_CODEC_DRV_NAME_CS42888 "rpmsg-audio-codec-cs42888"
-#define RPMSG_CODEC_DRV_NAME_AK4497 "rpmsg-audio-codec-ak4497"
 
 struct fsl_rpmsg_codec {
 	int audioindex;

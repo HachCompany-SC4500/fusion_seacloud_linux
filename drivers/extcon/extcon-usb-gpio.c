@@ -26,6 +26,7 @@
 #include <linux/platform_device.h>
 #include <linux/slab.h>
 #include <linux/workqueue.h>
+#include <linux/acpi.h>
 #include <linux/pinctrl/consumer.h>
 
 #define USB_GPIO_DEBOUNCE_MS	100	/* ms */
@@ -110,7 +111,7 @@ static int usb_extcon_probe(struct platform_device *pdev)
 	struct usb_extcon_info *info;
 	int ret;
 
-	if (!np)
+	if (!np && !ACPI_HANDLE(dev))
 		return -EINVAL;
 
 	info = devm_kzalloc(&pdev->dev, sizeof(*info), GFP_KERNEL);

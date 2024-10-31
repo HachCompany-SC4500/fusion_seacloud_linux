@@ -11,7 +11,7 @@
  * published by the Free Software Foundation.
 */
 
-#include <linux/export.h>
+#include <linux/module.h>
 #include <linux/rtc.h>
 
 static const unsigned char rtc_days_in_month[] = {
@@ -52,11 +52,13 @@ EXPORT_SYMBOL(rtc_year_days);
  */
 void rtc_time64_to_tm(time64_t time, struct rtc_time *tm)
 {
-	unsigned int month, year, secs;
+	unsigned int month, year;
+	unsigned long secs;
 	int days;
 
 	/* time must be positive */
-	days = div_s64_rem(time, 86400, &secs);
+	days = div_s64(time, 86400);
+	secs = time - (unsigned int) days * 86400;
 
 	/* day of the week, 1970-01-01 was a Thursday */
 	tm->tm_wday = (days + 4) % 7;
@@ -146,3 +148,5 @@ struct rtc_time rtc_ktime_to_tm(ktime_t kt)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(rtc_ktime_to_tm);
+
+MODULE_LICENSE("GPL");

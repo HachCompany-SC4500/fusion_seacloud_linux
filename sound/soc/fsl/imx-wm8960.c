@@ -44,8 +44,10 @@ struct imx_priv {
 	enum of_gpio_flags hp_active_low;
 	enum of_gpio_flags mic_active_low;
 	bool is_headset_jack;
+	struct snd_kcontrol *headphone_kctl;
 	struct platform_device *pdev;
 	struct platform_device *asrc_pdev;
+	struct snd_card *snd_card;
 };
 
 static struct imx_priv card_priv;
@@ -90,6 +92,7 @@ static int hp_jack_status_check(void *data)
 			snd_soc_dapm_disable_pin(dapm, "Main MIC");
 		}
 		ret = imx_hp_jack_gpio.report;
+		snd_kctl_jack_report(priv->snd_card, priv->headphone_kctl, 1);
 	} else {
 		snd_soc_dapm_enable_pin(dapm, "Ext Spk");
 		if (priv->is_headset_jack) {
@@ -97,6 +100,7 @@ static int hp_jack_status_check(void *data)
 			snd_soc_dapm_enable_pin(dapm, "Main MIC");
 		}
 		ret = 0;
+		snd_kctl_jack_report(priv->snd_card, priv->headphone_kctl, 0);
 	}
 
 	return ret;
@@ -147,7 +151,7 @@ static int imx_wm8960_jack_init(struct snd_soc_card *card,
 	return 0;
 }
 
-static ssize_t headphone_show(struct device_driver *dev, char *buf)
+static ssize_t show_headphone(struct device_driver *dev, char *buf)
 {
 	struct imx_priv *priv = &card_priv;
 	int hp_status;
@@ -163,7 +167,7 @@ static ssize_t headphone_show(struct device_driver *dev, char *buf)
 	return strlen(buf);
 }
 
-static ssize_t micphone_show(struct device_driver *dev, char *buf)
+static ssize_t show_micphone(struct device_driver *dev, char *buf)
 {
 	struct imx_priv *priv = &card_priv;
 	int mic_status;
@@ -178,8 +182,8 @@ static ssize_t micphone_show(struct device_driver *dev, char *buf)
 
 	return strlen(buf);
 }
-static DRIVER_ATTR_RO(headphone);
-static DRIVER_ATTR_RO(micphone);
+static DRIVER_ATTR(headphone, S_IRUGO | S_IWUSR, show_headphone, NULL);
+static DRIVER_ATTR(micphone, S_IRUGO | S_IWUSR, show_micphone, NULL);
 
 static int imx_hifi_hw_params(struct snd_pcm_substream *substream,
 				     struct snd_pcm_hw_params *params)
@@ -599,6 +603,8 @@ static int imx_wm8960_probe(struct platform_device *pdev)
 		goto fail;
 	}
 
+	priv->snd_card = data->card.snd_card;
+
 	imx_hp_jack_gpio.gpio = of_get_named_gpio_flags(pdev->dev.of_node,
 			"hp-det-gpios", 0, &priv->hp_active_low);
 
@@ -611,11 +617,15 @@ static int imx_wm8960_probe(struct platform_device *pdev)
 		priv->is_headset_jack = true;
 
 	if (gpio_is_valid(imx_hp_jack_gpio.gpio)) {
+		priv->headphone_kctl = snd_kctl_jack_new("Headphone", NULL);
+		ret = snd_ctl_add(priv->snd_card, priv->headphone_kctl);
+		if (ret)
+			dev_warn(&pdev->dev, "failed to create headphone jack kctl\n");
+
 		if (priv->is_headset_jack) {
 			imx_hp_jack_pin.mask |= SND_JACK_MICROPHONE;
 			imx_hp_jack_gpio.report |= SND_JACK_MICROPHONE;
 		}
-
 		imx_hp_jack_gpio.jack_status_check = hp_jack_status_check;
 		imx_hp_jack_gpio.data = &imx_hp_jack;
 		ret = imx_wm8960_jack_init(&data->card, &imx_hp_jack,

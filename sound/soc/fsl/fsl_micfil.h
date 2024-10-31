@@ -1,7 +1,11 @@
-/* SPDX-License-Identifier: GPL-2.0 */
 /*
- * PDM Microphone Interface for the NXP i.MX SoC
- * Copyright 2018 NXP
+ * fsl_micfil.h - PDM Microphone Interface for the NXP i.MX SoC
+ *
+ * Copyright (C) 2018 NXP
+ *
+ * This file is licensed under the terms of the GNU General Public License
+ * version 2. This program is licensed "as is" without any warranty of any
+ * kind, whether express or implied.
  */
 
 #ifndef _FSL_MICFIL_H
@@ -112,12 +116,6 @@
 #define MICFIL_FIFO_CTRL_FIFOWMK(v)	(((v) << MICFIL_FIFO_CTRL_FIFOWMK_SHIFT) \
 					 & MICFIL_FIFO_CTRL_FIFOWMK_MASK)
 
-/* MICFIL FIFO Status Register -- REG_MICFIL_FIFO_STAT 0x14 */
-#define MICFIL_FIFO_STAT_FIFOX_OVER_SHIFT(v)	(v)
-#define MICFIL_FIFO_STAT_FIFOX_OVER_MASK(v)	BIT(MICFIL_FIFO_STAT_FIFOX_OVER_SHIFT(v))
-#define MICFIL_FIFO_STAT_FIFOX_UNDER_SHIFT(v)	((v) + 8)
-#define MICFIL_FIFO_STAT_FIFOX_UNDER_MASK(v)	BIT(MICFIL_FIFO_STAT_FIFOX_UNDER_SHIFT(v))
-
 /* MICFIL HWVAD0 Control 1 Register -- REG_MICFIL_VAD0_CTRL1*/
 #define MICFIL_VAD0_CTRL1_CHSEL_SHIFT	24
 #define MICFIL_VAD0_CTRL1_CHSEL_WIDTH	3
@@ -147,7 +145,6 @@
 #define MICFIL_VAD0_CTRL1_IE_MASK	BIT(MICFIL_VAD0_CTRL1_IE_SHIFT)
 #define MICFIL_VAD0_CTRL1_IE		BIT(MICFIL_VAD0_CTRL1_IE_SHIFT)
 #define MICFIL_VAD0_CTRL1_RST_SHIFT	1
-#define MICFIL_VAD0_CTRL1_RST_MASK	BIT(MICFIL_VAD0_CTRL1_RST_SHIFT)
 #define MICFIL_VAD0_CTRL1_RST		BIT(MICFIL_VAD0_CTRL1_RST_SHIFT)
 #define MICFIL_VAD0_CTRL1_EN_SHIFT	0
 #define MICFIL_VAD0_CTRL1_EN_MASK	BIT(MICFIL_VAD0_CTRL1_EN_SHIFT)
@@ -288,30 +285,20 @@
 #define MICFIL_IRQ_ENABLED(v)		((0x2 << MICFIL_CTRL1_DISEL_SHIFT) \
 					 == ((v) & MICFIL_CTRL1_DISEL_MASK))
 #define MICFIL_OUTPUT_CHANNELS		8
-#define MICFIL_FIFO_NUM			8
 
 #define FIFO_PTRWID			3
 #define FIFO_LEN			BIT(FIFO_PTRWID)
 
-#define MICFIL_IRQ_LINES		4
 #define MICFIL_MAX_RETRY		25
 #define MICFIL_SLEEP_MIN		90000 /* in us */
 #define MICFIL_SLEEP_MAX		100000 /* in us */
 #define MICFIL_DMA_MAXBURST_RX		6
 #define MICFIL_CTRL2_OSR_DEFAULT	(0 << MICFIL_CTRL2_CICOSR_SHIFT)
 #define MICFIL_DEFAULT_RATE		48000
-#define MICFIL_CLK_SRC_NUM		3
-#define MICFIL_CLK_AUTO			0
-
-/* clock source ids */
-#define MICFIL_AUDIO_PLL1		0
-#define MICFIL_AUDIO_PLL2		1
-#define MICFIL_CLK_EXT3			2
 
 /* States of micfil */
-#define MICFIL_HWVAD_OFF		0
-#define MICFIL_HWVAD_ON			1
-#define MICFIL_RECORDING_OFF		0
-#define MICFIL_RECORDING_ON		1
+#define RECORDING_OFF_HWVAD_OFF		0
+#define RECORDING_OFF_HWVAD_ON		1
+#define RECORDING_ON_HWVAD_OFF		2
 
 #endif /* _FSL_MICFIL_H */

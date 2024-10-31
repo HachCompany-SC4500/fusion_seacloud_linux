@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2017 NXP
+ * Copyright (C) 2017-2018 NXP
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU General Public License as published by the
@@ -40,6 +40,7 @@ struct dcss_devtype {
 	u32 dtrc_ofs;
 	u32 dec400d_ofs;
 	u32 hdr10_ofs;
+	u32 pll_base;
 };
 
 static struct dcss_devtype dcss_type_imx8m = {
@@ -55,6 +56,7 @@ static struct dcss_devtype dcss_type_imx8m = {
 	.dtrc_ofs = 0x16000,
 	.dec400d_ofs = 0x15000,
 	.hdr10_ofs = 0x00000,
+	.pll_base = 0x30360000,
 };
 
 enum dcss_color_space dcss_drm_fourcc_to_colorspace(u32 drm_fourcc)
@@ -269,25 +271,30 @@ static int dcss_clks_init(struct dcss_soc *dcss)
 	struct {
 		const char *id;
 		struct clk **clk;
+		bool optional;
 	} clks[] = {
-		{"apb",   &dcss->apb_clk},
-		{"axi",   &dcss->axi_clk},
-		{"pix_div", &dcss->pdiv_clk},
-		{"pix_out", &dcss->pout_clk},
-		{"rtrm",  &dcss->apb_clk},
-		{"dtrc",  &dcss->dtrc_clk},
+		{"apb",		&dcss->apb_clk,		false},
+		{"axi",		&dcss->axi_clk,		false},
+		{"pix",		&dcss->pix_clk,		false},
+		{"rtrm",	&dcss->rtrm_clk,	false},
+		{"dtrc",	&dcss->dtrc_clk,	false},
+		{"pll",		&dcss->pll_clk,		true},
+		{"pll_src1",	&dcss->src_clk[0],	true},
+		{"pll_src2",	&dcss->src_clk[1],	true},
+		{"pll_src3",	&dcss->src_clk[2],	true},
 	};
 
 	for (i = 0; i < ARRAY_SIZE(clks); i++) {
 		*clks[i].clk = devm_clk_get(dcss->dev, clks[i].id);
-		if (IS_ERR(*clks[i].clk)) {
+		if (IS_ERR(*clks[i].clk) && !clks[i].optional) {
 			dev_err(dcss->dev, "failed to get %s clock\n",
 				clks[i].id);
 			ret = PTR_ERR(*clks[i].clk);
 			goto err;
 		}
 
-		clk_prepare_enable(*clks[i].clk);
+		if (!clks[i].optional)
+			clk_prepare_enable(*clks[i].clk);
 	}
 
 	dcss->clks_on = true;
@@ -308,13 +315,11 @@ static void dcss_clocks_enable(struct dcss_soc *dcss, bool en)
 		clk_prepare_enable(dcss->apb_clk);
 		clk_prepare_enable(dcss->rtrm_clk);
 		clk_prepare_enable(dcss->dtrc_clk);
-		clk_prepare_enable(dcss->pdiv_clk);
-		clk_prepare_enable(dcss->pout_clk);
+		clk_prepare_enable(dcss->pix_clk);
 	}
 
 	if (!en && dcss->clks_on) {
-		clk_disable_unprepare(dcss->pout_clk);
-		clk_disable_unprepare(dcss->pdiv_clk);
+		clk_disable_unprepare(dcss->pix_clk);
 		clk_disable_unprepare(dcss->dtrc_clk);
 		clk_disable_unprepare(dcss->rtrm_clk);
 		clk_disable_unprepare(dcss->apb_clk);
@@ -327,6 +332,7 @@ static void dcss_clocks_enable(struct dcss_soc *dcss, bool en)
 #ifdef CONFIG_DEBUG_FS
 #include <linux/debugfs.h>
 #include <linux/slab.h>
+#include <linux/sched/clock.h>
 
 static unsigned int dcss_tracing;
 EXPORT_SYMBOL(dcss_tracing);
@@ -352,7 +358,7 @@ void dcss_trace_write(u64 tag)
 	if (!dcss_tracing)
 		return;
 
-	trace = kzalloc(sizeof(*trace), GFP_KERNEL);
+	trace = kzalloc(sizeof(*trace), GFP_ATOMIC);
 	if (!trace)
 		return;
 
@@ -616,23 +622,6 @@ static int dcss_remove(struct platform_device *pdev)
 
 	return 0;
 }
-
-void dcss_req_pm_qos(struct dcss_soc *dcss, bool en)
-{
-	if (en && !dcss->pm_req_active) {
-		pm_qos_add_request(&dcss->pm_qos_req,
-				   PM_QOS_CPU_DMA_LATENCY, 0);
-		dcss->pm_req_active = true;
-		return;
-	}
-
-	if (dcss_dtrc_is_running(dcss, 1) || dcss_dtrc_is_running(dcss, 2))
-		return;
-
-	pm_qos_remove_request(&dcss->pm_qos_req);
-	dcss->pm_req_active = false;
-}
-EXPORT_SYMBOL(dcss_req_pm_qos);
 
 #ifdef CONFIG_PM_SLEEP
 static int dcss_suspend(struct device *dev)

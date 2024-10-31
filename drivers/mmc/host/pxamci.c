@@ -181,7 +181,7 @@ static void pxamci_dma_irq(void *param);
 static void pxamci_setup_data(struct pxamci_host *host, struct mmc_data *data)
 {
 	struct dma_async_tx_descriptor *tx;
-	enum dma_data_direction direction;
+	enum dma_transfer_direction direction;
 	struct dma_slave_config	config;
 	struct dma_chan *chan;
 	unsigned int nob = data->blocks;
@@ -702,11 +702,7 @@ static int pxamci_probe(struct platform_device *pdev)
 
 	pxamci_init_ocr(host);
 
-	/*
-	 * This architecture used to disable bounce buffers through its
-	 * defconfig, now it is done at runtime as a host property.
-	 */
-	mmc->caps = MMC_CAP_NO_BOUNCE_BUFF;
+	mmc->caps = 0;
 	host->cmdat = 0;
 	if (!cpu_is_pxa25x()) {
 		mmc->caps |= MMC_CAP_4_BIT_DATA | MMC_CAP_SDIO_IRQ;

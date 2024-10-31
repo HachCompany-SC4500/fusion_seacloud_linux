@@ -25,7 +25,6 @@ struct dpu_bliteng {
 	void __iomem *base;
 	s32 id;
 	struct mutex mutex;
-	bool inuse;
 	s32 irq_store9_shdload;
 	s32 irq_store9_framecomplete;
 	s32 irq_store9_seqcomplete;
@@ -39,8 +38,10 @@ struct dpu_bliteng {
 
 	struct dprc *dprc[2];
 
-	bool handle_start;
 	bool start;
+	bool sync;
+
+	u64 modifier;
 };
 
 #endif

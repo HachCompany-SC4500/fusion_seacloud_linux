@@ -4,7 +4,7 @@
  * This code is based on:
  * Author: Vitaly Wool <vital@embeddedalley.com>
  *
- * Copyright 2017 NXP
+ * Copyright 2017-2019 NXP
  * Copyright 2008-2015 Freescale Semiconductor, Inc. All Rights Reserved.
  * Copyright 2008 Embedded Alley Solutions, Inc All Rights Reserved.
  *
@@ -1248,7 +1248,9 @@ static int mxsfb_restore_mode(struct mxsfb_info *host)
 
 	fb_info->var.bits_per_pixel = bits_per_pixel;
 
-	vmode.pixclock = KHZ2PICOS(clk_get_rate(host->clk_pix) / 1000U);
+	vmode.pixclock = clk_get_rate(host->clk_pix) / 1000U;
+	if (vmode.pixclock)
+		vmode.pixclock = KHZ2PICOS(vmode.pixclock);
 	vmode.hsync_len = get_hsync_pulse_width(host, vdctrl2);
 	vmode.left_margin = GET_HOR_WAIT_CNT(vdctrl3) - vmode.hsync_len;
 	vmode.right_margin = VDCTRL2_GET_HSYNC_PERIOD(vdctrl2) - vmode.hsync_len -
@@ -1416,10 +1418,6 @@ static int mxsfb_init_fbinfo_dt(struct mxsfb_info *host)
 	INIT_LIST_HEAD(&fb_info->modelist);
 
 	for (i = 0; i < timings->num_timings; i++) {
-		/* Only consider native mode */
-		if (i != timings->native_mode)
-			continue;
-
 		ret = videomode_from_timings(timings, &vm, i);
 		if (ret < 0)
 			goto put_display_node;
@@ -1443,7 +1441,7 @@ static int mxsfb_init_fbinfo_dt(struct mxsfb_info *host)
 			fb_vm.sync |= FB_SYNC_CLK_LAT_FALL;
 
 		if (i == timings->native_mode) {
-			fb_videomode_from_videomode(&vm, &native_mode);
+			native_mode = fb_vm;
 			fb_videomode_to_var(&fb_info->var, &fb_vm);
 		}
 
@@ -1456,6 +1454,27 @@ static int mxsfb_init_fbinfo_dt(struct mxsfb_info *host)
 	if (retval != 1)
 		/* save the sync value getting from dtb */
 		host->sync = fb_info->var.sync;
+
+	switch (retval) {
+		case 0:
+			dev_err(dev, "fb_find_mode can't find a "
+					"suitable timing\n");
+			break;
+		case 1:
+			dev_info(dev, "Using timings from kernel parameters\n");
+			break;
+		case 2:
+			dev_info(dev, "Using timings from kernel parameters "
+					"and ignoring refresh rate\n");
+			break;
+		case 3:
+			dev_info(dev, "Using timings from devicetree\n");
+			break;
+		case 4:
+			dev_warn(dev, "Falling back to any valid timing\n");
+		default:
+			break;
+	}
 
 put_display_node:
 	if (timings)
@@ -1530,7 +1549,7 @@ static int mxsfb_dispdrv_init(struct platform_device *pdev,
 	disp_dev[strlen(host->disp_dev)] = '\0';
 
 	/* Use videomode name from dtb, if any given */
-	if (host->disp_videomode) {
+	if (host->disp_videomode[0]) {
 		setting.dft_mode_str = kmalloc(NAME_LEN, GFP_KERNEL);
 		if (setting.dft_mode_str) {
 			memset(setting.dft_mode_str, 0x0, NAME_LEN);
@@ -2194,6 +2213,9 @@ static void mxsfb_overlay_resume(struct mxsfb_info *fbi)
 		clk_enable_disp_axi(fbi);
 	}
 
+	/* Pull LCDIF out of reset */
+	writel(0xc0000000, fbi->base + LCDC_CTRL + REG_CLR);
+
 	writel(saved_as_ctrl, fbi->base + LCDC_AS_CTRL);
 	writel(saved_as_next_buf, fbi->base + LCDC_AS_NEXT_BUF);
 
@@ -2507,9 +2529,9 @@ static int mxsfb_resume(struct device *pdev)
 	pm_runtime_force_resume(&host->pdev->dev);
 
 	console_lock();
+	mxsfb_overlay_resume(host);
 	mxsfb_blank(host->restore_blank, fb_info);
 	fb_set_suspend(fb_info, 0);
-	mxsfb_overlay_resume(host);
 	console_unlock();
 
 	return 0;

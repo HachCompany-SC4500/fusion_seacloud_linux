@@ -18,10 +18,6 @@
 	status = "disabled";
 };
 
-&reg_can2_3v3 {
-	status = "disabled";
-};
-
 &flexcan2 {
 	status = "disabled";
 };

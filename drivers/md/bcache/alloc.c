@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
  * Primary bucket allocation code
  *
@@ -68,8 +67,6 @@
 #include <linux/kthread.h>
 #include <linux/random.h>
 #include <trace/events/bcache.h>
-
-#define MAX_OPEN_BUCKETS 128
 
 /* Bucket heap / gen */
 
@@ -686,7 +683,7 @@ int bch_open_buckets_alloc(struct cache_set *c)
 
 	spin_lock_init(&c->data_bucket_lock);
 
-	for (i = 0; i < MAX_OPEN_BUCKETS; i++) {
+	for (i = 0; i < 6; i++) {
 		struct open_bucket *b = kzalloc(sizeof(*b), GFP_KERNEL);
 		if (!b)
 			return -ENOMEM;

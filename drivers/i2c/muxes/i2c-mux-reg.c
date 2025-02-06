@@ -227,8 +227,10 @@ static int i2c_mux_reg_probe(struct platform_device *pdev)
 		class = mux->data.classes ? mux->data.classes[i] : 0;
 
 		ret = i2c_mux_add_adapter(muxc, nr, mux->data.values[i], class);
-		if (ret)
-			goto err_del_mux_adapters;
+		if (ret) {
+			dev_err(&pdev->dev, "Failed to add adapter %d\n", i);
+			goto add_adapter_failed;
+		}
 	}
 
 	dev_dbg(&pdev->dev, "%d port mux on %s adapter\n",
@@ -236,7 +238,7 @@ static int i2c_mux_reg_probe(struct platform_device *pdev)
 
 	return 0;
 
-err_del_mux_adapters:
+add_adapter_failed:
 	i2c_mux_del_adapters(muxc);
 err_put_parent:
 	i2c_put_adapter(parent);

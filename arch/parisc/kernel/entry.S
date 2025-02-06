@@ -1386,7 +1386,7 @@ nadtlb_nullify:
 
 	/* 
 		When there is no translation for the probe address then we
-		must nullify the insn and return zero in the target register.
+		must nullify the insn and return zero in the target regsiter.
 		This will indicate to the calling code that it does not have 
 		write/read privileges to this address.
 

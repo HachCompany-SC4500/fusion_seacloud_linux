@@ -1,66 +1,31 @@
 /*
- * Copyright 2014-2016 Toradex AG
+ * Copyright 2014-2018 Toradex AG
  * Copyright 2012 Freescale Semiconductor, Inc.
  * Copyright 2011 Linaro Ltd.
  *
- * This file is dual-licensed: you can use it either under the terms
- * of the GPL or the X11 license, at your option. Note that this dual
- * licensing only applies to this file, and not this project as a
- * whole.
+ * The code contained herein is licensed under the GNU General Public
+ * License. You may obtain a copy of the GNU General Public License
+ * Version 2 or later at the following locations:
  *
- *  a) This file is free software; you can redistribute it and/or
- *     modify it under the terms of the GNU General Public License
- *     version 2 as published by the Free Software Foundation.
- *
- *     This file is distributed in the hope that it will be useful,
- *     but WITHOUT ANY WARRANTY; without even the implied warranty of
- *     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *     GNU General Public License for more details.
- *
- * Or, alternatively,
- *
- *  b) Permission is hereby granted, free of charge, to any person
- *     obtaining a copy of this software and associated documentation
- *     files (the "Software"), to deal in the Software without
- *     restriction, including without limitation the rights to use,
- *     copy, modify, merge, publish, distribute, sublicense, and/or
- *     sell copies of the Software, and to permit persons to whom the
- *     Software is furnished to do so, subject to the following
- *     conditions:
- *
- *     The above copyright notice and this permission notice shall be
- *     included in all copies or substantial portions of the Software.
- *
- *     THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
- *     EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
- *     OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
- *     NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
- *     HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
- *     WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
- *     FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
- *     OTHER DEALINGS IN THE SOFTWARE.
+ * http://www.opensource.org/licenses/gpl-license.html
+ * http://www.gnu.org/copyleft/gpl.html
  */
 
 /dts-v1/;
 
 #include <dt-bindings/input/input.h>
 #include <dt-bindings/interrupt-controller/irq.h>
-#include <dt-bindings/pwm/pwm.h>
 #include "imx6dl.dtsi"
 #include "imx6qdl-colibri.dtsi"
 
 / {
 	model = "Toradex Colibri iMX6DL/S on Colibri Evaluation Board V3";
-	compatible = "toradex,colibri_imx6dl-eval-v3", "toradex,colibri_imx6dl",
-		     "fsl,imx6dl";
-
-	memory@10000000 {
-		reg = <0x10000000 0>;
-	};
+	compatible = "toradex,colibri_imx6dl-eval", "toradex,colibri_imx6dl", "fsl,imx6dl";
 
 	aliases {
-		i2c0 = &i2c2;
-		i2c1 = &i2c3;
+		i2c0 = &i2cddc;
+		i2c1 = &i2c2;
+		i2c2 = &i2c3;
 	};
 
 	aliases {
@@ -69,11 +34,9 @@
 	};
 
 	aliases {
-		/*
-		 * the following, together with kernel patches, forces a fixed
-		 * assignment between device id and usdhc controller
-		 * i.e. the eMMC on usdhc3 will be /dev/mmcblk0
-		 */
+		/* the following, together with kernel patches, forces a fixed assignment
+		   between device id and usdhc controller */
+		/* i.e. the eMMC on usdhc3 will be /dev/mmcblk0 */
 		mmc0 = &usdhc3; /* eMMC */
 		mmc1 = &usdhc1; /* MMC 4bit slot */
 	};
@@ -83,19 +46,7 @@
 		debounce = <25>;
 		id-gpio = <&gpio7 12 GPIO_ACTIVE_HIGH>;
 		pinctrl-names = "default";
-		pinctrl-0 = <&pinctrl_usbc_det>;
-	};
-
-	chosen {
-		stdout-path = "serial0:115200n8";
-	};
-
-	/* Fixed crystal dedicated to mcp251x */
-	clk16m: clock-16m {
-		compatible = "fixed-clock";
-		#clock-cells = <0>;
-		clock-frequency = <16000000>;
-		clock-output-names = "clk16m";
+		pinctrl-0 = <&pinctrl_usbc_det_1>;
 	};
 
 	gpio-keys {
@@ -105,67 +56,52 @@
 
 		wakeup {
 			label = "Wake-Up";
-			gpios = <&gpio2 22 GPIO_ACTIVE_HIGH>; /* SODIMM 45 */
+			gpios = <&gpio2 22 GPIO_ACTIVE_HIGH>;
 			linux,code = <KEY_WAKEUP>;
 			debounce-interval = <10>;
-			wakeup-source;
+			gpio-key,wakeup;
 		};
 	};
 
-	lcd_display: display@di0 {
-		compatible = "fsl,imx-parallel-display";
-		#address-cells = <1>;
-		#size-cells = <0>;
-		interface-pix-fmt = "bgr666";
-		pinctrl-names = "default";
-		pinctrl-0 = <&pinctrl_ipu1_lcdif>;
-		status = "okay";
-
-		port@0 {
-			reg = <0>;
-
-			lcd_display_in: endpoint {
-				remote-endpoint = <&ipu1_di0_disp0>;
-			};
-		};
-
-		port@1 {
-			reg = <1>;
-
-			lcd_display_out: endpoint {
-				remote-endpoint = <&lcd_panel_in>;
-			};
-		};
-	};
-
-	panel: panel {
-		/*
-		 * edt,et057090dhu: EDT 5.7" LCD TFT
-		 * edt,et070080dh6: EDT 7.0" LCD TFT
-		 */
-		compatible = "edt,et057090dhu";
-		backlight = <&backlight>;
-
-		port {
-			lcd_panel_in: endpoint {
-				remote-endpoint = <&lcd_display_out>;
-			};
+	regulators {
+		reg_usb_host_vbus: usb_host_vbus {
+			status = "okay";
 		};
 	};
 };
 
 &backlight {
-	brightness-levels = <0 45 63 88 119 158 203 255>;
-	default-brightness-level = <4>;
-	pwms = <&pwm3 0 6666667 PWM_POLARITY_INVERTED>;
+#if 0 /* PWM polarity: if 1 is brightest */
+	pwms = <&pwm3 0 5000000 0>;
+#if 0 /* Fusion 7 needs 10kHz PWM frequency */
+	pwms = <&pwm3 0 100000 0>;
+#endif
+#else /* PWM polarity: if 0 is brightest */
+	pwms = <&pwm3 0 5000000 1>;
+#endif
+	brightness-levels = <0 4 8 16 32 64 128 255>;
+	default-brightness-level = <6>;
 	status = "okay";
 };
 
-/* Colibri SSP */
+/ {
+	clocks {
+		/* fixed crystal dedicated to mcp251x */
+		clk16m: clk@1 {
+			compatible = "fixed-clock";
+			reg=<1>;
+			#clock-cells = <0>;
+			clock-frequency = <16000000>;
+			clock-output-names = "clk16m";
+		};
+	};
+};
+
+/* Colibri SPI */
 &ecspi4 {
 	status = "okay";
 
-	mcp251x0: mcp251x@1 {
+	mcp258x0: mcp258x@1 {
 		compatible = "microchip,mcp2515";
 		reg = <0>;
 		clocks = <&clk16m>;
@@ -183,11 +119,14 @@
 };
 
 /*
- * Colibri I2C: I2C3_SDA/SCL on SODIMM 194/196 (e.g. RTC on carrier board)
+ * I2C: I2C3_SDA/SCL on SODIMM 194/196 (e.g. RTC on carrier
+ * board)
  */
 &i2c3 {
 	status = "okay";
 
+/* the PCAPs use SODIMM 28/30, also used for PWM<B>, PWM<C>, aka pwm1, pwm4.
+   so if you enable one of the PCAP controllers disable the pwms */
 	/* Atmel maxtouch controller */
 	atmel_mxt_ts: atmel_mxt_ts@4a {
 		compatible = "atmel,maxtouch";
@@ -200,10 +139,6 @@
 		status = "disabled";
 	};
 
-	/*
-	 * the PCAPs use SODIMM 28/30, also used for PWM<B>, PWM<C>, aka pwm1,
-	 * pwm4. So if you enable one of the PCAP controllers disable the pwms.
-	 */
 	pcap: pcap@10 {
 		/* TouchRevolution Fusion 7 and 10 multi-touch controller */
 		compatible = "touchrevolution,fusion-f0710a";
@@ -224,6 +159,10 @@
 };
 
 &iomuxc {
+	/*
+	 * Mux all pins which are unused to be GPIOs
+	 * so they are ready for export to user space
+	 */
 	pinctrl-names = "default";
 	pinctrl-0 = <
 		&pinctrl_weim_gpio_1 &pinctrl_weim_gpio_2
@@ -238,22 +177,18 @@
 	gpio {
 		pinctrl_pcap_1: pcap-1 {
 			fsl,pins = <
-				MX6QDL_PAD_GPIO_9__GPIO1_IO09	0x1b0b0 /* SODIMM 28 */
-				MX6QDL_PAD_SD4_DAT2__GPIO2_IO10	0x1b0b0 /* SODIMM 30 */
+				MX6QDL_PAD_GPIO_9__GPIO1_IO09	PAD_CTRL_HYS_PU /* SODIMM 28 */
+				MX6QDL_PAD_SD4_DAT2__GPIO2_IO10	PAD_CTRL_HYS_PU /* SODIMM 30 */
 			>;
 		};
 
 		pinctrl_mxt_ts: mxt-ts {
 			fsl,pins = <
-				MX6QDL_PAD_EIM_CS1__GPIO2_IO24	0x130b0 /* SODIMM 107 */
-				MX6QDL_PAD_SD2_DAT1__GPIO1_IO14	0x130b0 /* SODIMM 106 */
+				MX6QDL_PAD_EIM_CS1__GPIO2_IO24	PAD_CTRL_HYS_PD /* SODIMM 107 */
+				MX6QDL_PAD_SD2_DAT1__GPIO1_IO14	PAD_CTRL_HYS_PD /* SODIMM 106 */
 			>;
 		};
 	};
-};
-
-&ipu1_di0_disp0 {
-	remote-endpoint = <&lcd_display_in>;
 };
 
 &lcd {
@@ -268,6 +203,8 @@
 	status = "okay";
 };
 
+/* the PCAPs use SODIMM 28/30, also used for PWM<B>, PWM<C>, aka pwm1, pwm4.
+   so if you enable one of the PCAP controllers disable the pwms */
 &pwm1 {
 	status = "okay";
 };
@@ -284,16 +221,17 @@
 	status = "okay";
 };
 
-&reg_usb_host_vbus {
-	status = "okay";
-};
-
 &uart1 {
 	status = "okay";
 };
 
 &uart2 {
 	status = "okay";
+#if 0
+	linux,rs485-enabled-at-boot-time;
+	rs485-rts-active-low;
+	rs485-rx-during-tx;
+#endif
 };
 
 &uart3 {
@@ -301,7 +239,6 @@
 };
 
 &usbh1 {
-	vbus-supply = <&reg_usb_host_vbus>;
 	status = "okay";
 };
 
@@ -310,7 +247,7 @@
 	extcon = <&extcon_usbc_det>, <&extcon_usbc_det>;
 };
 
-/* Colibri MMC */
+/* MMC */
 &usdhc1 {
 	status = "okay";
 };
@@ -318,13 +255,12 @@
 &weim {
 	status = "okay";
 	fsl,weim-cs-gpr = <&gpr>;
-	/* weim memory map: 32MB on CS0, CS1, CS2 and CS3 */
+	/* weim memory map: 32MB on CS0, 32MB on CS1, 32MB on CS2, 32MB on CS3 */
 	ranges = <0 0 0x08000000 0x02000000
-		  1 0 0x0a000000 0x02000000
-		  2 0 0x0c000000 0x02000000
-		  3 0 0x0e000000 0x02000000>;
-
-	/* SRAM on Colibri nEXT_CS0 */
+	          1 0 0x0a000000 0x02000000
+	          2 0 0x0c000000 0x02000000
+	          3 0 0x0e000000 0x02000000>;
+	/* SRAM on CS0 */
 	sram@0,0 {
 		compatible = "cypress,cy7c1019dv33-10zsxi, mtd-ram";
 		reg = <0 0 0x00010000>;
@@ -332,10 +268,9 @@
 		#size-cells = <1>;
 		bank-width = <2>;
 		fsl,weim-cs-timing = <0x00010081 0x00000000 0x04000000
-				      0x00000000 0x04000040 0x00000000>;
+				0x00000000 0x04000040 0x00000000>;
 	};
-
-	/* SRAM on Colibri nEXT_CS1 */
+	/* SRAM on CS1 */
 	sram@1,0 {
 		compatible = "cypress,cy7c1019dv33-10zsxi, mtd-ram";
 		reg = <1 0 0x00010000>;
@@ -343,6 +278,6 @@
 		#size-cells = <1>;
 		bank-width = <2>;
 		fsl,weim-cs-timing = <0x00010081 0x00000000 0x04000000
-				      0x00000000 0x04000040 0x00000000>;
+				0x00000000 0x04000040 0x00000000>;
 	};
 };

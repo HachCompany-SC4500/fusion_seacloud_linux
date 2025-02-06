@@ -27,6 +27,8 @@
 #include <linux/module.h>
 #include <linux/debugfs.h>
 #include <linux/stringify.h>
+#include <linux/sched/signal.h>
+
 #include <asm/ioctls.h>
 
 #include <net/bluetooth/bluetooth.h>
@@ -152,13 +154,25 @@ void bt_sock_unlink(struct bt_sock_list *l, struct sock *sk)
 }
 EXPORT_SYMBOL(bt_sock_unlink);
 
-void bt_accept_enqueue(struct sock *parent, struct sock *sk)
+void bt_accept_enqueue(struct sock *parent, struct sock *sk, bool bh)
 {
 	BT_DBG("parent %p, sk %p", parent, sk);
 
 	sock_hold(sk);
+
+	if (bh)
+		bh_lock_sock_nested(sk);
+	else
+		lock_sock_nested(sk, SINGLE_DEPTH_NESTING);
+
 	list_add_tail(&bt_sk(sk)->accept_q, &bt_sk(parent)->accept_q);
 	bt_sk(sk)->parent = parent;
+
+	if (bh)
+		bh_unlock_sock(sk);
+	else
+		release_sock(sk);
+
 	parent->sk_ack_backlog++;
 }
 EXPORT_SYMBOL(bt_accept_enqueue);
@@ -269,7 +283,7 @@ int bt_sock_recvmsg(struct socket *sock, struct msghdr *msg, size_t len,
 	if (err == 0) {
 		sock_recv_ts_and_drops(msg, sk, skb);
 
-		if (bt_sk(sk)->skb_msg_name)
+		if (msg->msg_name && bt_sk(sk)->skb_msg_name)
 			bt_sk(sk)->skb_msg_name(skb, msg->msg_name,
 						&msg->msg_namelen);
 	}
@@ -653,7 +667,7 @@ static int bt_seq_show(struct seq_file *seq, void *v)
 		seq_printf(seq,
 			   "%pK %-6d %-6u %-6u %-6u %-6lu %-6lu",
 			   sk,
-			   atomic_read(&sk->sk_refcnt),
+			   refcount_read(&sk->sk_refcnt),
 			   sk_rmem_alloc_get(sk),
 			   sk_wmem_alloc_get(sk),
 			   from_kuid(seq_user_ns(seq), sock_i_uid(sk)),
@@ -729,7 +743,7 @@ void bt_procfs_cleanup(struct net *net, const char *name)
 EXPORT_SYMBOL(bt_procfs_init);
 EXPORT_SYMBOL(bt_procfs_cleanup);
 
-static struct net_proto_family bt_sock_family_ops = {
+static const struct net_proto_family bt_sock_family_ops = {
 	.owner	= THIS_MODULE,
 	.family	= PF_BLUETOOTH,
 	.create	= bt_sock_create,

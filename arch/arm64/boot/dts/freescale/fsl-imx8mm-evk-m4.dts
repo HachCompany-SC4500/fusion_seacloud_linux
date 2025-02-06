@@ -27,25 +27,18 @@
 
 	};
 
-	sound-wm8524 {
-		status = "disabled";
-	};
-
-	wm8524: wm8524 {
-		status = "disabled";
-	};
-
 	rpmsg_i2s: rpmsg-i2s {
 		compatible = "fsl,imx8mq-rpmsg-i2s";
 		/* the audio device index in m4 domain */
 		fsl,audioindex = <0> ;
 		fsl,dma-buffer-size = <0x6000000>;
+		fsl,enable-lpa;
 		status = "okay";
 	};
 
 	sound-rpmsg {
 		compatible = "fsl,imx-audio-rpmsg";
-		model = "rpmsg-audio";
+		model = "ak4497-audio";
 		cpu-dai = <&rpmsg_i2s>;
 		rpmsg-out;
 	};
@@ -61,6 +54,16 @@
 	status = "disabled";
 };
 
+&rpmsg{
+	/*
+	 * 64K for one rpmsg instance:
+	 * --0xb8000000~0xb800ffff: pingpong
+	 */
+	vdev-nums = <1>;
+	reg = <0x0 0xb8000000 0x0 0x10000>;
+	status = "okay";
+};
+
 &sdma1{
 	status = "disabled";
 };
@@ -69,14 +72,14 @@
 	status = "disabled";
 };
 
-&sai3 {
-	status = "disabled";
-};
-
 &sdma3 {
 	status = "disabled";
 };
 
 &sai1 {
+	status = "disabled";
+};
+
+&flexspi {
 	status = "disabled";
 };

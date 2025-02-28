@@ -8,6 +8,7 @@
  */
 
 #include <dt-bindings/input/input.h>
+#include <dt-bindings/pwm/pwm.h>
 
 / {
 	chosen {
@@ -54,7 +55,7 @@
 	reg_usbh_vbus: regulator-usbh-vbus {
 		compatible = "regulator-fixed";
 		pinctrl-names = "default";
-		pinctrl-0 = <&pinctrl_usbh1_reg>;
+		pinctrl-0 = <&pinctrl_usbh_reg>;
 		regulator-name = "VCC_USB[1-4]";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
@@ -64,9 +65,9 @@
 };
 
 &bl {
-	brightness-levels = <0 4 8 16 32 64 128 255>;
-	default-brightness-level = <6>;
-	pwms = <&pwm4 0 5000000 1>;
+	brightness-levels = <0 45 63 88 119 158 203 255>;
+	default-brightness-level = <4>;
+	pwms = <&pwm4 0 6666667 PWM_POLARITY_INVERTED>;
 	status = "okay";
 };
 
@@ -107,8 +108,8 @@
 	pinctrl-names = "default", "gpio";
 	pinctrl-0 = <&pinctrl_i2c1>;
 	pinctrl-1 = <&pinctrl_i2c1_gpio>;
-	sda-gpios = <&gpio1 29 GPIO_ACTIVE_LOW>;
-	scl-gpios = <&gpio1 28 GPIO_ACTIVE_LOW>;
+	sda-gpios = <&gpio1 29 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+	scl-gpios = <&gpio1 28 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
 	status = "okay";
 
 	/* Atmel maxtouch controller */
@@ -296,14 +297,15 @@
 /* #define SD_1_8 */
 &usdhc1 {
 #ifdef SD_1_8
-	pinctrl-names = "default", "state_100mhz", "state_200mhz";
-	pinctrl-0 = <&pinctrl_usdhc1 &pinctrl_snvs_cd_usdhc1>;
-	pinctrl-1 = <&pinctrl_usdhc1_100mhz &pinctrl_snvs_cd_usdhc1>;
-	pinctrl-2 = <&pinctrl_usdhc1_200mhz &pinctrl_snvs_cd_usdhc1>;
+	pinctrl-names = "default", "state_100mhz", "state_200mhz", "sleep";
+	pinctrl-0 = <&pinctrl_usdhc1 &pinctrl_snvs_usdhc1_cd>;
+	pinctrl-1 = <&pinctrl_usdhc1_100mhz &pinctrl_snvs_usdhc1_cd>;
+	pinctrl-2 = <&pinctrl_usdhc1_200mhz &pinctrl_snvs_usdhc1_cd>;
+	pinctrl-3 = <&pinctrl_usdhc1 &pinctrl_snvs_usdhc1_cd_sleep>;
 	vqmmc-supply = <&reg_sd1_vmmc>;
 #else
 	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_usdhc1 &pinctrl_snvs_cd_usdhc1>;
+	pinctrl-0 = <&pinctrl_usdhc1 &pinctrl_snvs_usdhc1_cd>;
 	no-1-8-v;
 #endif
 	cd-gpios = <&gpio5 0 GPIO_ACTIVE_LOW>;

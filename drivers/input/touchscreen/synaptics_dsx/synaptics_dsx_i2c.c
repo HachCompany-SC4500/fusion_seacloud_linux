@@ -132,7 +132,6 @@ static dma_addr_t wDMABuf_pa;
 
 static struct task_struct *thread;
 static DECLARE_WAIT_QUEUE_HEAD(waiter);
-int tpd_halt;
 static int tpd_flag;
 DEFINE_MUTEX(rmi4_report_mutex);
 static struct device *g_dev;
@@ -1591,11 +1590,6 @@ static int touch_event_handler(void *data)
 	do {
 		set_current_state(TASK_INTERRUPTIBLE);
 
-		while (tpd_halt) {
-			tpd_flag = 0;
-			msleep(20);
-		}
-
 		wait_event_interruptible(waiter, tpd_flag != 0);
 
 		tpd_flag = 0;
@@ -2235,7 +2229,7 @@ static int synaptics_rmi4_f1a_button_map(struct synaptics_rmi4_data *rmi4_data,
 		retval = synaptics_rmi4_i2c_read(rmi4_data,
 				fhandler->full_addr.ctrl_base + mapping_offset,
 				f1a->button_control.txrx_map,
-				sizeof(f1a->button_control.txrx_map));
+				sizeof(*(f1a->button_control.txrx_map)));
 		if (retval < 0) {
 			dev_err(&rmi4_data->i2c_client->dev,
 					"%s: Failed to read tx rx mapping\n",
@@ -2534,8 +2528,11 @@ rescan_pdt:
 
 				retval = synaptics_rmi4_f01_init(rmi4_data,
 						fhandler, &rmi_fd, intr_count);
-				if (retval < 0)
+				if (retval < 0) {
+					kfree(fhandler);
+					fhandler = NULL;
 					return retval;
+				}
 
 				retval = synaptics_rmi4_check_status(rmi4_data,
 						&was_in_bl_mode);
@@ -2543,6 +2540,8 @@ rescan_pdt:
 					dev_err(&rmi4_data->i2c_client->dev,
 							"%s: Failed to check status\n",
 							__func__);
+					kfree(fhandler);
+					fhandler = NULL;
 					return retval;
 				}
 
@@ -2552,8 +2551,11 @@ rescan_pdt:
 					goto rescan_pdt;
 				}
 
-				if (rmi4_data->flash_prog_mode)
+				if (rmi4_data->flash_prog_mode) {
+					kfree(fhandler);
+					fhandler = NULL;
 					goto flash_prog_mode;
+				}
 
 				break;
 			case SYNAPTICS_RMI4_F11:
@@ -2572,8 +2574,12 @@ rescan_pdt:
 
 				retval = synaptics_rmi4_f11_init(rmi4_data,
 						fhandler, &rmi_fd, intr_count);
-				if (retval < 0)
+				if (retval < 0) {
+					kfree(fhandler);
+					fhandler = NULL;
 					return retval;
+				}
+
 				break;
 			case SYNAPTICS_RMI4_F12:
 				if (rmi_fd.intr_src_count == 0)
@@ -2591,8 +2597,12 @@ rescan_pdt:
 
 				retval = synaptics_rmi4_f12_init(rmi4_data,
 						fhandler, &rmi_fd, intr_count);
-				if (retval < 0)
+				if (retval < 0) {
+					kfree(fhandler);
+					fhandler = NULL;
 					return retval;
+				}
+
 				break;
 			case SYNAPTICS_RMI4_F1A:
 				if (rmi_fd.intr_src_count == 0)
@@ -2611,13 +2621,11 @@ rescan_pdt:
 				retval = synaptics_rmi4_f1a_init(rmi4_data,
 						fhandler, &rmi_fd, intr_count);
 				if (retval < 0) {
-#ifdef IGNORE_FN_INIT_FAILURE
 					kfree(fhandler);
 					fhandler = NULL;
-#else
 					return retval;
-#endif
 				}
+
 				break;
 			}
 
@@ -3168,7 +3176,7 @@ static int synaptics_rmi4_probe(struct i2c_client *client,
 		const struct i2c_device_id *dev_id)
 {
 	int retval, ret;
-	unsigned char attr_count;
+	signed char attr_count;
 	struct synaptics_rmi4_data *rmi4_data;
 	struct device_node *np = client->dev.of_node;
 #if 0
@@ -3262,16 +3270,14 @@ static int synaptics_rmi4_probe(struct i2c_client *client,
 
 	touch_irq = client->irq;
 	ret = devm_request_irq(&client->dev, touch_irq, (irq_handler_t) tpd_eint_handler,
-				IRQF_TRIGGER_LOW, "synaptics_rmi4_touch", NULL);
-
-	disable_irq_nosync(touch_irq);
-	retval = synaptics_rmi4_irq_enable(rmi4_data, true);
-	if (retval < 0) {
+				IRQF_TRIGGER_LOW, "synaptics_rmi4_touch", rmi4_data);
+	if (ret < 0) {
 		dev_err(&client->dev,
 				"%s: Failed to register attention interrupt\n",
 				__func__);
 		goto err_enable_irq;
 	}
+	rmi4_data->irq_enabled = true;
 
 	if (!exp_data.initialized) {
 		mutex_init(&exp_data.mutex);
@@ -3509,12 +3515,11 @@ static int __maybe_unused synaptics_rmi4_suspend(struct device *dev)
 
 	if (!rmi4_data->sensor_sleep) {
 		rmi4_data->touch_stopped = true;
-		synaptics_rmi4_irq_enable(rmi4_data, false);
 		synaptics_rmi4_sleep_enable(rmi4_data, true);
 		synaptics_rmi4_free_fingers(rmi4_data);
+		rmi4_data->irq_enabled = false;
+		free_irq(touch_irq, rmi4_data);
 	}
-
-	tpd_halt = 1;
 
 exit:
 	mutex_lock(&exp_data.mutex);
@@ -3555,8 +3560,11 @@ static int __maybe_unused synaptics_rmi4_resume(struct device *dev)
 		goto exit;
 	}
 
+	retval = devm_request_irq(dev, touch_irq, (irq_handler_t) tpd_eint_handler,
+				IRQF_TRIGGER_LOW, "synaptics_rmi4_touch", rmi4_data);
+	rmi4_data->irq_enabled = true;
+
 	synaptics_rmi4_sleep_enable(rmi4_data, false);
-	synaptics_rmi4_irq_enable(rmi4_data, true);
 	retval = synaptics_rmi4_reinit_device(rmi4_data);
 	if (retval < 0) {
 		dev_err(&rmi4_data->i2c_client->dev,
@@ -3576,7 +3584,6 @@ exit:
 
 	rmi4_data->sensor_sleep = false;
 	rmi4_data->touch_stopped = false;
-	tpd_halt = 0;
 
 	return 0;
 }

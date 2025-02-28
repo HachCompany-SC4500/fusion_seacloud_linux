@@ -142,13 +142,13 @@
 		reg = <0x1fffc000 0x4000>;
 	};
 
-	pmu: pmu@a7 {
-		compatible = "arm,cortex-a7-pmu";
-	};
-
 	caam_sm: caam-sm@26000000 {
 			 compatible = "fsl,imx6q-caam-sm";
-			 reg = <0x26000000 0x8000>;
+			 reg = <0x26000000 0x7fff>;
+	};
+
+	pmu: pmu@a7 {
+		compatible = "arm,cortex-a7-pmu";
 	};
 
 	ahbbridge0: ahb-bridge0@40000000 {
@@ -304,8 +304,6 @@
 			assigned-clocks = <&clks IMX7ULP_CLK_LPSPI2>;
 			assigned-clock-parents = <&clks IMX7ULP_CLK_FIRC_BUS_CLK>;
 			assigned-clock-rates = <48000000>;
-			dmas = <&edma0 0 26>, <&edma0 0 25>;
-			dma-names = "tx","rx";
 			status = "disabled";
 		};
 
@@ -319,8 +317,6 @@
 			assigned-clocks = <&clks IMX7ULP_CLK_LPSPI3>;
 			assigned-clock-parents = <&clks IMX7ULP_CLK_FIRC_BUS_CLK>;
 			assigned-clock-rates = <48000000>;
-			dmas = <&edma0 0 28>, <&edma0 0 27>;
-			dma-names = "tx","rx";
 			status = "disabled";
 		};
 

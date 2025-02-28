@@ -31,6 +31,8 @@
 
 #include "vfio_pci_private.h"
 
+#define PCI_CFG_SPACE_SIZE	256
+
 /* Fake capability ID for standard config space */
 #define PCI_CAP_ID_BASIC	0
 
@@ -150,7 +152,7 @@ static int vfio_user_config_read(struct pci_dev *pdev, int offset,
 
 	*val = cpu_to_le32(tmp_val);
 
-	return ret;
+	return pcibios_err_to_errno(ret);
 }
 
 static int vfio_user_config_write(struct pci_dev *pdev, int offset,
@@ -171,7 +173,7 @@ static int vfio_user_config_write(struct pci_dev *pdev, int offset,
 		break;
 	}
 
-	return ret;
+	return pcibios_err_to_errno(ret);
 }
 
 static int vfio_default_config_read(struct vfio_pci_device *vdev, int pos,
@@ -255,7 +257,7 @@ static int vfio_direct_config_read(struct vfio_pci_device *vdev, int pos,
 
 	ret = vfio_user_config_read(vdev->pdev, pos, val, count);
 	if (ret)
-		return ret;
+		return pcibios_err_to_errno(ret);
 
 	if (pos >= PCI_CFG_SPACE_SIZE) { /* Extended cap header mangling */
 		if (offset < 4)
@@ -293,7 +295,7 @@ static int vfio_raw_config_read(struct vfio_pci_device *vdev, int pos,
 
 	ret = vfio_user_config_read(vdev->pdev, pos, val, count);
 	if (ret)
-		return ret;
+		return pcibios_err_to_errno(ret);
 
 	return count;
 }
@@ -861,7 +863,7 @@ static int vfio_exp_config_write(struct vfio_pci_device *vdev, int pos,
 /* Permissions for PCI Express capability */
 static int __init init_pci_cap_exp_perm(struct perm_bits *perm)
 {
-	/* Alloc largest of possible sizes */
+	/* Alloc larger of two possible sizes */
 	if (alloc_perm_bits(perm, PCI_CAP_EXP_ENDPOINT_SIZEOF_V2))
 		return -ENOMEM;
 
@@ -1112,7 +1114,7 @@ static int vfio_msi_config_write(struct vfio_pci_device *vdev, int pos,
 						 start + PCI_MSI_FLAGS,
 						 flags);
 		if (ret)
-			return ret;
+			return pcibios_err_to_errno(ret);
 	}
 
 	return count;
@@ -1268,16 +1270,11 @@ static int vfio_cap_len(struct vfio_pci_device *vdev, u8 cap, u8 pos)
 			vdev->extended_caps = (dword != 0);
 		}
 
-		/* length based on version and type */
-		if ((pcie_caps_reg(pdev) & PCI_EXP_FLAGS_VERS) == 1) {
-			if (pci_pcie_type(pdev) == PCI_EXP_TYPE_RC_END)
-				return 0xc; /* "All Devices" only, no link */
+		/* length based on version */
+		if ((pcie_caps_reg(pdev) & PCI_EXP_FLAGS_VERS) == 1)
 			return PCI_CAP_EXP_ENDPOINT_SIZEOF_V1;
-		} else {
-			if (pci_pcie_type(pdev) == PCI_EXP_TYPE_RC_END)
-				return 0x2c; /* No link */
+		else
 			return PCI_CAP_EXP_ENDPOINT_SIZEOF_V2;
-		}
 	case PCI_CAP_ID_HT:
 		ret = pci_read_config_byte(pdev, pos + 3, &byte);
 		if (ret)

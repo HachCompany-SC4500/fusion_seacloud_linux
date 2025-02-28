@@ -1,4 +1,3 @@
-// SPDX-License-Identifier: GPL-2.0
 /*
  * /proc/sys support
  */
@@ -9,7 +8,6 @@
 #include <linux/printk.h>
 #include <linux/security.h>
 #include <linux/sched.h>
-#include <linux/cred.h>
 #include <linux/namei.h>
 #include <linux/mm.h>
 #include <linux/module.h>
@@ -426,6 +424,10 @@ static void next_entry(struct ctl_table_header **phead, struct ctl_table **pentr
 	*pentry = entry;
 }
 
+void register_sysctl_root(struct ctl_table_root *root)
+{
+}
+
 /*
  * sysctl_perm does NOT grant the superuser all rights automatically, because
  * some sysctl variables are readonly even to root.
@@ -464,7 +466,7 @@ static struct inode *proc_sys_make_inode(struct super_block *sb,
 
 	inode = new_inode(sb);
 	if (!inode)
-		return ERR_PTR(-ENOMEM);
+		goto out;
 
 	inode->i_ino = get_next_ino();
 
@@ -474,7 +476,8 @@ static struct inode *proc_sys_make_inode(struct super_block *sb,
 	if (unlikely(head->unregistering)) {
 		spin_unlock(&sysctl_lock);
 		iput(inode);
-		return ERR_PTR(-ENOENT);
+		inode = NULL;
+		goto out;
 	}
 	ei->sysctl = head;
 	ei->sysctl_entry = table;
@@ -499,6 +502,7 @@ static struct inode *proc_sys_make_inode(struct super_block *sb,
 	if (root->set_ownership)
 		root->set_ownership(head, table, &inode->i_uid, &inode->i_gid);
 
+out:
 	return inode;
 }
 
@@ -547,11 +551,10 @@ static struct dentry *proc_sys_lookup(struct inode *dir, struct dentry *dentry,
 			goto out;
 	}
 
+	err = ERR_PTR(-ENOMEM);
 	inode = proc_sys_make_inode(dir->i_sb, h ? h : head, p);
-	if (IS_ERR(inode)) {
-		err = ERR_CAST(inode);
+	if (!inode)
 		goto out;
-	}
 
 	err = NULL;
 	d_set_d_op(dentry, &proc_sys_dentry_operations);
@@ -684,7 +687,7 @@ static bool proc_sys_fill_cache(struct file *file,
 			return false;
 		if (d_in_lookup(child)) {
 			inode = proc_sys_make_inode(dir->d_sb, head, table);
-			if (IS_ERR(inode)) {
+			if (!inode) {
 				d_lookup_done(child);
 				dput(child);
 				return false;
@@ -818,10 +821,9 @@ static int proc_sys_setattr(struct dentry *dentry, struct iattr *attr)
 	return 0;
 }
 
-static int proc_sys_getattr(const struct path *path, struct kstat *stat,
-			    u32 request_mask, unsigned int query_flags)
+static int proc_sys_getattr(struct vfsmount *mnt, struct dentry *dentry, struct kstat *stat)
 {
-	struct inode *inode = d_inode(path->dentry);
+	struct inode *inode = d_inode(dentry);
 	struct ctl_table_header *head = grab_header(inode);
 	struct ctl_table *table = PROC_I(inode)->sysctl_entry;
 
@@ -1081,30 +1083,15 @@ static int sysctl_err(const char *path, struct ctl_table *table, char *fmt, ...)
 	return -EINVAL;
 }
 
-static int sysctl_check_table_array(const char *path, struct ctl_table *table)
-{
-	int err = 0;
-
-	if ((table->proc_handler == proc_douintvec) ||
-	    (table->proc_handler == proc_douintvec_minmax)) {
-		if (table->maxlen != sizeof(unsigned int))
-			err |= sysctl_err(path, table, "array now allowed");
-	}
-
-	return err;
-}
-
 static int sysctl_check_table(const char *path, struct ctl_table *table)
 {
 	int err = 0;
 	for (; table->procname; table++) {
 		if (table->child)
-			err |= sysctl_err(path, table, "Not a file");
+			err = sysctl_err(path, table, "Not a file");
 
 		if ((table->proc_handler == proc_dostring) ||
 		    (table->proc_handler == proc_dointvec) ||
-		    (table->proc_handler == proc_douintvec) ||
-		    (table->proc_handler == proc_douintvec_minmax) ||
 		    (table->proc_handler == proc_dointvec_minmax) ||
 		    (table->proc_handler == proc_dointvec_jiffies) ||
 		    (table->proc_handler == proc_dointvec_userhz_jiffies) ||
@@ -1112,17 +1099,15 @@ static int sysctl_check_table(const char *path, struct ctl_table *table)
 		    (table->proc_handler == proc_doulongvec_minmax) ||
 		    (table->proc_handler == proc_doulongvec_ms_jiffies_minmax)) {
 			if (!table->data)
-				err |= sysctl_err(path, table, "No data");
+				err = sysctl_err(path, table, "No data");
 			if (!table->maxlen)
-				err |= sysctl_err(path, table, "No maxlen");
-			else
-				err |= sysctl_check_table_array(path, table);
+				err = sysctl_err(path, table, "No maxlen");
 		}
 		if (!table->proc_handler)
-			err |= sysctl_err(path, table, "No proc_handler");
+			err = sysctl_err(path, table, "No proc_handler");
 
 		if ((table->mode & (S_IRUGO|S_IWUGO)) != table->mode)
-			err |= sysctl_err(path, table, "bogus .mode 0%o",
+			err = sysctl_err(path, table, "bogus .mode 0%o",
 				table->mode);
 	}
 	return err;
@@ -1620,11 +1605,8 @@ static void drop_sysctl_table(struct ctl_table_header *header)
 	if (--header->nreg)
 		return;
 
-	if (parent) {
-		put_links(header);
-		start_unregistering(header);
-	}
-
+	put_links(header);
+	start_unregistering(header);
 	if (!--header->count)
 		kfree_rcu(header, rcu);
 

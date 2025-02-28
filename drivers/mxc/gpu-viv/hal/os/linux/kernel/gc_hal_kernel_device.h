@@ -177,7 +177,6 @@ typedef struct _gcsHAL_PRIVATE_DATA
      * closes it.
      */
     gctUINT32           pidOpen;
-    gctBOOL             isLocked;
 }
 gcsHAL_PRIVATE_DATA, * gcsHAL_PRIVATE_DATA_PTR;
 

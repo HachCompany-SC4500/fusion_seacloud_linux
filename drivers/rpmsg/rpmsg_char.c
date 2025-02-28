@@ -116,7 +116,7 @@ static int rpmsg_ept_cb(struct rpmsg_device *rpdev, void *buf, int len,
 	if (!skb)
 		return -ENOMEM;
 
-	skb_put_data(skb, buf, len);
+	memcpy(skb_put(skb, len), buf, len);
 
 	spin_lock(&eptdev->queue_lock);
 	skb_queue_tail(&eptdev->queue, skb);
@@ -581,6 +581,4 @@ static void rpmsg_chrdev_exit(void)
 	unregister_chrdev_region(rpmsg_major, RPMSG_DEV_MAX);
 }
 module_exit(rpmsg_chrdev_exit);
-
-MODULE_ALIAS("rpmsg:rpmsg_chrdev");
 MODULE_LICENSE("GPL v2");

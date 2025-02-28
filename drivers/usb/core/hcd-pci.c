@@ -582,7 +582,12 @@ static int hcd_pci_suspend_noirq(struct device *dev)
 
 static int hcd_pci_resume_noirq(struct device *dev)
 {
-	powermac_set_asic(to_pci_dev(dev), 1);
+	struct pci_dev		*pci_dev = to_pci_dev(dev);
+
+	powermac_set_asic(pci_dev, 1);
+
+	/* Go back to D0 and disable remote wakeup */
+	pci_back_from_sleep(pci_dev);
 	return 0;
 }
 

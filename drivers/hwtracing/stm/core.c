@@ -252,6 +252,9 @@ static int find_free_channels(unsigned long *bitmap, unsigned int start,
 			;
 		if (i == width)
 			return pos;
+
+		/* step over [pos..pos+i) to continue search */
+		pos += i;
 	}
 
 	return -1;
@@ -428,7 +431,7 @@ static int stm_file_assign(struct stm_file *stmf, char *id, unsigned int width)
 	return ret;
 }
 
-static ssize_t stm_write(struct stm_data *data, unsigned int master,
+static ssize_t notrace stm_write(struct stm_data *data, unsigned int master,
 			  unsigned int channel, const char *buf, size_t count)
 {
 	unsigned int flags = STP_PACKET_TIMESTAMPED;
@@ -558,7 +561,7 @@ static int stm_char_policy_set_ioctl(struct stm_file *stmf, void __user *arg)
 {
 	struct stm_device *stm = stmf->stm;
 	struct stp_policy_id *id;
-	int ret = -EINVAL;
+	int ret = -EINVAL, wlimit = 1;
 	u32 size;
 
 	if (stmf->output.nr_chans)
@@ -567,7 +570,7 @@ static int stm_char_policy_set_ioctl(struct stm_file *stmf, void __user *arg)
 	if (copy_from_user(&size, arg, sizeof(size)))
 		return -EFAULT;
 
-	if (size >= PATH_MAX + sizeof(*id))
+	if (size < sizeof(*id) || size >= PATH_MAX + sizeof(*id))
 		return -EINVAL;
 
 	/*
@@ -586,8 +589,10 @@ static int stm_char_policy_set_ioctl(struct stm_file *stmf, void __user *arg)
 	if (id->__reserved_0 || id->__reserved_1)
 		goto err_free;
 
-	if (id->width < 1 ||
-	    id->width > PAGE_SIZE / stm->data->sw_mmiosz)
+	if (stm->data->sw_mmiosz)
+		wlimit = PAGE_SIZE / stm->data->sw_mmiosz;
+
+	if (id->width < 1 || id->width > wlimit)
 		goto err_free;
 
 	ret = stm_file_assign(stmf, id->id, id->width);
@@ -1124,8 +1129,9 @@ void stm_source_unregister_device(struct stm_source_data *data)
 }
 EXPORT_SYMBOL_GPL(stm_source_unregister_device);
 
-int stm_source_write(struct stm_source_data *data, unsigned int chan,
-		     const char *buf, size_t count)
+int notrace stm_source_write(struct stm_source_data *data,
+			     unsigned int chan,
+			     const char *buf, size_t count)
 {
 	struct stm_source_device *src = data->src;
 	struct stm_device *stm;

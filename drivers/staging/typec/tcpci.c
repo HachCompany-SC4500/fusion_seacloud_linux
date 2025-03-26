@@ -630,7 +630,7 @@ static const struct regmap_config tcpci_regmap_config = {
 	.max_register = 0x7F, /* 0x80 .. 0xFF are vendor defined */
 };
 
-const struct tcpc_config tcpci_tcpc_config = {
+static const struct tcpc_config tcpci_tcpc_config = {
 	.type = TYPEC_PORT_DFP,
 	.default_role = TYPEC_SINK,
 };
@@ -662,12 +662,13 @@ static int tcpci_parse_config(struct tcpci *tcpci)
 		goto sink;
 
 	/* Check source pdo array size */
-	tcfg->nr_src_pdo = device_property_read_u32_array(tcpci->dev,
-						"src-pdos", NULL, 0);
-	if (tcfg->nr_src_pdo <= 0) {
+	ret = device_property_read_u32_array(tcpci->dev, "src-pdos", NULL, 0);
+	if (ret <= 0) {
 		dev_err(tcpci->dev, "typec source pdo is missing!\n");
 		return -EINVAL;
 	}
+
+	tcfg->nr_src_pdo = ret;
 
 	/* Alloc src_pdo based on the array size */
 	tcfg->src_pdo = devm_kzalloc(tcpci->dev,
@@ -728,12 +729,14 @@ static int tcpci_parse_config(struct tcpci *tcpci)
 
 sink:
 	/* Check the num of snk pdo */
-	tcfg->nr_snk_pdo = device_property_read_u32_array(tcpci->dev,
-						"snk-pdos", NULL, 0);
-	if (tcfg->nr_snk_pdo <= 0) {
+	ret = device_property_read_u32_array(tcpci->dev,
+					     "snk-pdos", NULL, 0);
+	if (ret <= 0) {
 		dev_err(tcpci->dev, "typec sink pdo is missing!\n");
 		return -EINVAL;
 	}
+
+	tcfg->nr_snk_pdo = ret;
 
 	/* alloc snk_pdo based on the array size */
 	tcfg->snk_pdo = devm_kzalloc(tcpci->dev,
@@ -857,6 +860,7 @@ static int tcpci_probe(struct i2c_client *client,
 	if (err)
 		goto err1;
 
+	irq_set_status_flags(client->irq, IRQ_DISABLE_UNLAZY);
 	err = devm_request_threaded_irq(tcpci->dev, client->irq, NULL,
 					tcpci_irq,
 					IRQF_ONESHOT | IRQF_TRIGGER_LOW,
@@ -877,6 +881,7 @@ static int tcpci_remove(struct i2c_client *client)
 	struct tcpci *tcpci = i2c_get_clientdata(client);
 
 	tcpm_unregister_port(tcpci->port);
+	irq_clear_status_flags(client->irq, IRQ_DISABLE_UNLAZY);
 
 	return 0;
 }
@@ -887,6 +892,8 @@ static int tcpci_suspend(struct device *dev)
 
 	if (device_may_wakeup(dev))
 		enable_irq_wake(tcpci->client->irq);
+	else
+		disable_irq(tcpci->client->irq);
 
 	return 0;
 }
@@ -897,6 +904,8 @@ static int tcpci_resume(struct device *dev)
 
 	if (device_may_wakeup(dev))
 		disable_irq_wake(tcpci->client->irq);
+	else
+		enable_irq(tcpci->client->irq);
 
 	return 0;
 }

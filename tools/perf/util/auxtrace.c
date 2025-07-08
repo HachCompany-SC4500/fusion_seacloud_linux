@@ -13,10 +13,10 @@
  *
  */
 
-#include <inttypes.h>
 #include <sys/types.h>
 #include <sys/mman.h>
 #include <stdbool.h>
+#include <ctype.h>
 #include <string.h>
 #include <limits.h>
 #include <errno.h>
@@ -46,6 +46,7 @@
 #include "cpumap.h"
 #include "thread_map.h"
 #include "asm/bug.h"
+#include "symbol/kallsyms.h"
 #include "auxtrace.h"
 
 #include <linux/hash.h>
@@ -57,9 +58,6 @@
 
 #include "intel-pt.h"
 #include "intel-bts.h"
-
-#include "sane_ctype.h"
-#include "symbol/kallsyms.h"
 
 int auxtrace_mmap__mmap(struct auxtrace_mmap *mm,
 			struct auxtrace_mmap_params *mp,
@@ -325,13 +323,6 @@ static int auxtrace_queues__add_event_buffer(struct auxtrace_queues *queues,
 	return auxtrace_queues__add_buffer(queues, idx, buffer);
 }
 
-static bool filter_cpu(struct perf_session *session, int cpu)
-{
-	unsigned long *cpu_bitmap = session->itrace_synth_opts->cpu_bitmap;
-
-	return cpu_bitmap && cpu != -1 && !test_bit(cpu, cpu_bitmap);
-}
-
 int auxtrace_queues__add_event(struct auxtrace_queues *queues,
 			       struct perf_session *session,
 			       union perf_event *event, off_t data_offset,
@@ -340,9 +331,6 @@ int auxtrace_queues__add_event(struct auxtrace_queues *queues,
 	struct auxtrace_buffer *buffer;
 	unsigned int idx;
 	int err;
-
-	if (filter_cpu(session, event->auxtrace.cpu))
-		return 0;
 
 	buffer = zalloc(sizeof(struct auxtrace_buffer));
 	if (!buffer)
@@ -960,8 +948,6 @@ void itrace_synth_opts__set_default(struct itrace_synth_opts *synth_opts)
 	synth_opts->instructions = true;
 	synth_opts->branches = true;
 	synth_opts->transactions = true;
-	synth_opts->ptwrites = true;
-	synth_opts->pwr_events = true;
 	synth_opts->errors = true;
 	synth_opts->period_type = PERF_ITRACE_DEFAULT_PERIOD_TYPE;
 	synth_opts->period = PERF_ITRACE_DEFAULT_PERIOD;
@@ -1044,12 +1030,6 @@ int itrace_parse_synth_opts(const struct option *opt, const char *str,
 			break;
 		case 'x':
 			synth_opts->transactions = true;
-			break;
-		case 'w':
-			synth_opts->ptwrites = true;
-			break;
-		case 'p':
-			synth_opts->pwr_events = true;
 			break;
 		case 'e':
 			synth_opts->errors = true;
@@ -1264,9 +1244,9 @@ static int __auxtrace_mmap__read(struct auxtrace_mmap *mm,
 	}
 
 	/* padding must be written by fn() e.g. record__process_auxtrace() */
-	padding = size & (PERF_AUXTRACE_RECORD_ALIGNMENT - 1);
+	padding = size & 7;
 	if (padding)
-		padding = PERF_AUXTRACE_RECORD_ALIGNMENT - padding;
+		padding = 8 - padding;
 
 	memset(&ev, 0, sizeof(ev));
 	ev.auxtrace.header.type = PERF_RECORD_AUXTRACE;

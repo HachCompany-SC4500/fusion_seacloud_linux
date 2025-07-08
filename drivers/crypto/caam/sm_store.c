@@ -37,6 +37,7 @@
 #include "error.h"
 #include "sm.h"
 #include <linux/of_address.h>
+#include <soc/imx8/soc.h>
 
 #define SECMEM_KEYMOD_LEN 8
 #define GENMEM_KEYMOD_LEN 16
@@ -420,17 +421,13 @@ void sm_key_job_done(struct device *dev, u32 *desc, u32 err, void *context)
 {
 	struct sm_key_job_result *res = context;
 
-	if (err)
-		caam_jr_strstatus(dev, err);
-
 	res->error = err;	/* save off the error for postprocessing */
-
 	complete(&res->completion);	/* mark us complete */
 }
 
 static int sm_key_job(struct device *ksdev, u32 *jobdesc)
 {
-	struct sm_key_job_result testres = {0};
+	struct sm_key_job_result testres;
 	struct caam_drv_private_sm *kspriv;
 	int rtn = 0;
 
@@ -440,13 +437,10 @@ static int sm_key_job(struct device *ksdev, u32 *jobdesc)
 
 	rtn = caam_jr_enqueue(kspriv->smringdev, jobdesc, sm_key_job_done,
 			      &testres);
-	if (rtn)
-		goto exit;
-
-	wait_for_completion_interruptible(&testres.completion);
-	rtn = testres.error;
-
-exit:
+	if (!rtn) {
+		wait_for_completion_interruptible(&testres.completion);
+		rtn = testres.error;
+	}
 	return rtn;
 }
 
@@ -602,6 +596,7 @@ u32 slot_get_slot_size(struct device *dev, u32 unit, u32 slot)
 int kso_init_data(struct device *dev, u32 unit)
 {
 	struct caam_drv_private_sm *smpriv = dev_get_drvdata(dev);
+	int retval = -EINVAL;
 	struct keystore_data *keystore_data = NULL;
 	u32 slot_count;
 	u32 keystore_data_size;
@@ -621,8 +616,10 @@ int kso_init_data(struct device *dev, u32 unit)
 
 	keystore_data = kzalloc(keystore_data_size, GFP_KERNEL);
 
-	if (!keystore_data)
-		return -ENOMEM;
+	if (keystore_data == NULL) {
+		retval = -ENOSPC;
+		goto out;
+	}
 
 #ifdef SM_DEBUG
 	dev_info(dev, "kso_init_data: keystore data size = %d\n",
@@ -643,7 +640,15 @@ int kso_init_data(struct device *dev, u32 unit)
 	smpriv->pagedesc[unit].ksdata->phys_address =
 		smpriv->pagedesc[unit].pg_phys;
 
-	return 0;
+	retval = 0;
+
+out:
+	if (retval != 0)
+		if (keystore_data != NULL)
+			kfree(keystore_data);
+
+
+	return retval;
 }
 
 void kso_cleanup_data(struct device *dev, u32 unit)
@@ -865,44 +870,21 @@ int sm_keystore_slot_export(struct device *dev, u32 unit, u32 slot, u8 keycolor,
 	dma_addr_t keymod_dma, outbuf_dma;
 	u32 dsize, jstat;
 	u32 __iomem *encapdesc = NULL;
-	struct device *dev_for_dma_op;
-
-	/* Use the ring as device for DMA operations */
-	dev_for_dma_op = smpriv->smringdev;
 
 	/* Get the base address(es) of the specified slot */
 	slotaddr = (u8 *)smpriv->slot_get_address(dev, unit, slot);
 	slotphys = smpriv->slot_get_physical(dev, unit, slot);
 
-	/* Allocate memory for key modifier compatible with DMA */
+	/* Build/map/flush the key modifier */
 	lkeymod = kmalloc(SECMEM_KEYMOD_LEN, GFP_KERNEL | GFP_DMA);
-	if (!lkeymod) {
-		retval = (-ENOMEM);
-		goto exit;
-	}
-
-	/* Get DMA address for the key modifier */
-	keymod_dma = dma_map_single(dev_for_dma_op, lkeymod,
-					SECMEM_KEYMOD_LEN, DMA_TO_DEVICE);
-	if (dma_mapping_error(dev_for_dma_op, keymod_dma)) {
-		dev_err(dev, "unable to map keymod: %p\n", lkeymod);
-		retval = (-ENOMEM);
-		goto free_keymod;
-	}
-
-	/* Copy the keymod and synchronize the DMA */
 	memcpy(lkeymod, keymod, SECMEM_KEYMOD_LEN);
-	dma_sync_single_for_device(dev_for_dma_op, keymod_dma,
-					SECMEM_KEYMOD_LEN, DMA_TO_DEVICE);
+	keymod_dma = dma_map_single(dev, lkeymod, SECMEM_KEYMOD_LEN,
+				    DMA_TO_DEVICE);
+	dma_sync_single_for_device(dev, keymod_dma, SECMEM_KEYMOD_LEN,
+				   DMA_TO_DEVICE);
 
-	/* Get DMA address for the destination */
-	outbuf_dma = dma_map_single(dev_for_dma_op, outbuf,
-				keylen + BLOB_OVERHEAD, DMA_FROM_DEVICE);
-	if (dma_mapping_error(dev_for_dma_op, outbuf_dma)) {
-		dev_err(dev, "unable to map outbuf: %p\n", outbuf);
-		retval = (-ENOMEM);
-		goto unmap_keymod;
-	}
+	outbuf_dma = dma_map_single(dev, outbuf, keylen + BLOB_OVERHEAD,
+				    DMA_FROM_DEVICE);
 
 	/* Build the encapsulation job descriptor */
 	dsize = blob_encap_jobdesc(&encapdesc, keymod_dma, slotphys, outbuf_dma,
@@ -910,35 +892,20 @@ int sm_keystore_slot_export(struct device *dev, u32 unit, u32 slot, u8 keycolor,
 	if (!dsize) {
 		dev_err(dev, "can't alloc an encapsulation descriptor\n");
 		retval = -ENOMEM;
-		goto unmap_outbuf;
+		goto out;
 	}
-
-	/* Run the job */
 	jstat = sm_key_job(dev, encapdesc);
-	if (jstat) {
-		retval = (-EIO);
-		goto free_desc;
-	}
+	dma_sync_single_for_cpu(dev, outbuf_dma, keylen + BLOB_OVERHEAD,
+				DMA_FROM_DEVICE);
+	if (jstat)
+		retval = -EIO;
 
-	/* Synchronize the data received */
-	dma_sync_single_for_cpu(dev_for_dma_op, outbuf_dma,
-			keylen + BLOB_OVERHEAD, DMA_FROM_DEVICE);
-
-free_desc:
+out:
+	dma_unmap_single(dev, outbuf_dma, keylen + BLOB_OVERHEAD,
+			 DMA_FROM_DEVICE);
+	dma_unmap_single(dev, keymod_dma, SECMEM_KEYMOD_LEN, DMA_TO_DEVICE);
 	kfree(encapdesc);
 
-unmap_outbuf:
-	dma_unmap_single(dev_for_dma_op, outbuf_dma, keylen + BLOB_OVERHEAD,
-			DMA_FROM_DEVICE);
-
-unmap_keymod:
-	dma_unmap_single(dev_for_dma_op, keymod_dma, SECMEM_KEYMOD_LEN,
-			DMA_TO_DEVICE);
-
-free_keymod:
-	kfree(lkeymod);
-
-exit:
 	return retval;
 }
 EXPORT_SYMBOL(sm_keystore_slot_export);
@@ -954,48 +921,23 @@ int sm_keystore_slot_import(struct device *dev, u32 unit, u32 slot, u8 keycolor,
 	dma_addr_t keymod_dma, inbuf_dma;
 	u32 dsize, jstat;
 	u32 __iomem *decapdesc = NULL;
-	struct device *dev_for_dma_op;
-
-	/* Use the ring as device for DMA operations */
-	dev_for_dma_op = smpriv->smringdev;
 
 	/* Get the base address(es) of the specified slot */
 	slotaddr = (u8 *)smpriv->slot_get_address(dev, unit, slot);
 	slotphys = smpriv->slot_get_physical(dev, unit, slot);
 
-	/* Allocate memory for key modifier compatible with DMA */
+	/* Build/map/flush the key modifier */
 	lkeymod = kmalloc(SECMEM_KEYMOD_LEN, GFP_KERNEL | GFP_DMA);
-	if (!lkeymod) {
-		retval = (-ENOMEM);
-		goto exit;
-	}
-
-	/* Get DMA address for the key modifier */
-	keymod_dma = dma_map_single(dev_for_dma_op, lkeymod,
-					SECMEM_KEYMOD_LEN, DMA_TO_DEVICE);
-	if (dma_mapping_error(dev_for_dma_op, keymod_dma)) {
-		dev_err(dev, "unable to map keymod: %p\n", lkeymod);
-		retval = (-ENOMEM);
-		goto free_keymod;
-	}
-
-	/* Copy the keymod and synchronize the DMA */
 	memcpy(lkeymod, keymod, SECMEM_KEYMOD_LEN);
-	dma_sync_single_for_device(dev_for_dma_op, keymod_dma,
-					SECMEM_KEYMOD_LEN, DMA_TO_DEVICE);
+	keymod_dma = dma_map_single(dev, lkeymod, SECMEM_KEYMOD_LEN,
+				    DMA_TO_DEVICE);
+	dma_sync_single_for_device(dev, keymod_dma, SECMEM_KEYMOD_LEN,
+				   DMA_TO_DEVICE);
 
-	/* Get DMA address for the input */
-	inbuf_dma = dma_map_single(dev_for_dma_op, inbuf,
-					keylen + BLOB_OVERHEAD, DMA_TO_DEVICE);
-	if (dma_mapping_error(dev_for_dma_op, inbuf_dma)) {
-		dev_err(dev, "unable to map inbuf: %p\n", (void *)inbuf_dma);
-		retval = (-ENOMEM);
-		goto unmap_keymod;
-	}
-
-	/* synchronize the DMA */
-	dma_sync_single_for_device(dev_for_dma_op, inbuf_dma,
-					keylen + BLOB_OVERHEAD, DMA_TO_DEVICE);
+	inbuf_dma = dma_map_single(dev, inbuf, keylen + BLOB_OVERHEAD,
+				   DMA_TO_DEVICE);
+	dma_sync_single_for_device(dev, inbuf_dma, keylen + BLOB_OVERHEAD,
+				   DMA_TO_DEVICE);
 
 	/* Build the encapsulation job descriptor */
 	dsize = blob_decap_jobdesc(&decapdesc, keymod_dma, inbuf_dma, slotphys,
@@ -1003,10 +945,9 @@ int sm_keystore_slot_import(struct device *dev, u32 unit, u32 slot, u8 keycolor,
 	if (!dsize) {
 		dev_err(dev, "can't alloc a decapsulation descriptor\n");
 		retval = -ENOMEM;
-		goto unmap_inbuf;
+		goto out;
 	}
 
-	/* Run the job */
 	jstat = sm_key_job(dev, decapdesc);
 
 	/*
@@ -1015,26 +956,15 @@ int sm_keystore_slot_import(struct device *dev, u32 unit, u32 slot, u8 keycolor,
 	 * meaningful for something like an ICV error on restore, otherwise
 	 * the caller is left guessing.
 	 */
-	if (jstat) {
-		retval = (-EIO);
-		goto free_desc;
-	}
+	if (jstat)
+		retval = -EIO;
 
-free_desc:
+out:
+	dma_unmap_single(dev, inbuf_dma, keylen + BLOB_OVERHEAD,
+			 DMA_TO_DEVICE);
+	dma_unmap_single(dev, keymod_dma, SECMEM_KEYMOD_LEN, DMA_TO_DEVICE);
 	kfree(decapdesc);
 
-unmap_inbuf:
-	dma_unmap_single(dev_for_dma_op, inbuf_dma, keylen + BLOB_OVERHEAD,
-			DMA_TO_DEVICE);
-
-unmap_keymod:
-	dma_unmap_single(dev_for_dma_op, keymod_dma, SECMEM_KEYMOD_LEN,
-			DMA_TO_DEVICE);
-
-free_keymod:
-	kfree(lkeymod);
-
-exit:
 	return retval;
 }
 EXPORT_SYMBOL(sm_keystore_slot_import);
@@ -1053,6 +983,7 @@ int caam_sm_startup(struct platform_device *pdev)
 	struct device *ctrldev, *smdev;
 	struct caam_drv_private *ctrlpriv;
 	struct caam_drv_private_sm *smpriv;
+	struct platform_device *jrpdev;
 	struct caam_drv_private_jr *jrpriv;	/* need this for reg page */
 	struct platform_device *sm_pdev;
 	struct sm_page_descriptor *lpagedesc;
@@ -1153,7 +1084,14 @@ int caam_sm_startup(struct platform_device *pdev)
 	 * we can divorce the controller and ring drivers, and then assign
 	 * an SM instance to any ring instance).
 	 */
-	smpriv->smringdev = caam_jr_alloc();
+	jrpdev = ctrlpriv->jrpdev[0];
+	if (!jrpdev) {
+		dev_err(smdev, "Platform device for job ring not created\n");
+		ret = -ENODEV;
+		goto unregister_smpdev;
+	}
+
+	smpriv->smringdev = &jrpdev->dev;
 	if (!smpriv->smringdev) {
 		dev_err(smdev, "Device for job ring not created\n");
 		ret = -ENODEV;
@@ -1167,12 +1105,10 @@ int caam_sm_startup(struct platform_device *pdev)
 			    * smpriv->max_pages, GFP_KERNEL);
 	if (lpagedesc == NULL) {
 		ret = -ENOMEM;
-		goto free_smringdev;
+		goto free_smpriv;
 	}
 
 	for (page = 0; page < smpriv->max_pages; page++) {
-		u32 page_ownership;
-
 		if (sm_send_cmd(smpriv, jrpriv,
 				((page << SMC_PAGE_SHIFT) & SMC_PAGE_MASK) |
 				(SMC_CMD_PAGE_INQUIRY & SMC_CMD_MASK),
@@ -1181,10 +1117,8 @@ int caam_sm_startup(struct platform_device *pdev)
 			goto free_lpagedesc;
 		}
 
-		page_ownership = (pgstat & SMCS_PGWON_MASK) >> SMCS_PGOWN_SHIFT;
-		if ((page_ownership == SMCS_PGOWN_OWNED)
-			|| (page_ownership == SMCS_PGOWN_NOOWN)) {
-			/* page allocated */
+		if (((pgstat & SMCS_PGWON_MASK) >> SMCS_PGOWN_SHIFT)
+		    == SMCS_PGOWN_OWNED) { /* our page? */
 			lpagedesc[page].phys_pagenum =
 				(pgstat & SMCS_PAGE_MASK) >> SMCS_PAGE_SHIFT;
 			lpagedesc[page].own_part =
@@ -1241,8 +1175,6 @@ int caam_sm_startup(struct platform_device *pdev)
 
 free_lpagedesc:
 	kfree(lpagedesc);
-free_smringdev:
-	caam_jr_free(smpriv->smringdev);
 unregister_smpdev:
 	of_device_unregister(smpriv->sm_pdev);
 free_smpriv:
@@ -1267,8 +1199,6 @@ void caam_sm_shutdown(struct platform_device *pdev)
 		return;
 
 	smpriv = dev_get_drvdata(smdev);
-
-	caam_jr_free(smpriv->smringdev);
 
 	/* Remove Secure Memory Platform Device */
 	of_device_unregister(smpriv->sm_pdev);

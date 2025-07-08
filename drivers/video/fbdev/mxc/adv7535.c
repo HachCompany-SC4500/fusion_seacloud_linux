@@ -263,7 +263,7 @@ static int adv7535_probe(struct i2c_client *client,
 	info->fb_vmode = devm_kzalloc(dev, sizeof(struct fb_videomode),
 				      GFP_KERNEL);
 	if (!info->fb_vmode) {
-		ret = -ENOMEM;
+		return -ENOMEM;
 		goto err1;
 	}
 

@@ -24,7 +24,6 @@
 #include <sound/soc-dapm.h>
 
 #include "fsl_sai.h"
-#include "fsl_dsd.h"
 
 struct imx_ak4458_data {
 	struct snd_soc_card card;
@@ -98,7 +97,7 @@ static const u32 ak4458_channels[] = {
 };
 
 static const u32 ak4458_channels_tdm[] = {
-	1, 2, 3, 4, 5, 6, 7, 8, 16,
+	1, 2, 3, 4, 5, 6, 7, 8,
 };
 
 static unsigned long ak4458_get_mclk_rate(struct snd_pcm_substream *substream,
@@ -149,23 +148,17 @@ static int imx_aif_hw_params(struct snd_pcm_substream *substream,
 	unsigned int channels = params_channels(params);
 	unsigned int fmt = SND_SOC_DAIFMT_NB_NF | SND_SOC_DAIFMT_CBS_CFS;
 	unsigned long mclk_freq;
-	bool is_dsd = fsl_is_dsd(params);
 	int ret, i;
 
-	if (is_dsd) {
-		channels = 1;
-		data->slots = 1;
-		data->slot_width = params_width(params);
-		fmt |= SND_SOC_DAIFMT_PDM;
-	} else if (data->tdm_mode) {
+	if (data->tdm_mode) {
 		data->slots = 8;
 		data->slot_width = 32;
-		fmt |= SND_SOC_DAIFMT_DSP_B;
 	} else {
 		data->slots = 2;
 		data->slot_width = params_physical_width(params);
-		fmt |= SND_SOC_DAIFMT_I2S;
 	}
+
+	fmt |= data->tdm_mode ? SND_SOC_DAIFMT_DSP_B : SND_SOC_DAIFMT_I2S;
 
 	ret = snd_soc_dai_set_fmt(cpu_dai, fmt);
 	if (ret) {
@@ -201,8 +194,6 @@ static int imx_aif_hw_params(struct snd_pcm_substream *substream,
 
 	/* set MCLK freq */
 	mclk_freq = ak4458_get_mclk_rate(substream, params);
-	if (is_dsd)
-		mclk_freq = 22579200;
 	ret = snd_soc_dai_set_sysclk(cpu_dai, FSL_SAI_CLK_MAST1, mclk_freq,
 				     SND_SOC_CLOCK_OUT);
 	if (ret < 0)

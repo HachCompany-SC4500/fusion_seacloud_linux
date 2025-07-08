@@ -271,9 +271,9 @@ static void dump_referral(const struct dfs_info3_param *ref)
 {
 	cifs_dbg(FYI, "DFS: ref path: %s\n", ref->path_name);
 	cifs_dbg(FYI, "DFS: node path: %s\n", ref->node_name);
-	cifs_dbg(FYI, "DFS: fl: %d, srv_type: %d\n",
+	cifs_dbg(FYI, "DFS: fl: %hd, srv_type: %hd\n",
 		 ref->flags, ref->server_type);
-	cifs_dbg(FYI, "DFS: ref_flags: %d, path_consumed: %d\n",
+	cifs_dbg(FYI, "DFS: ref_flags: %hd, path_consumed: %hd\n",
 		 ref->ref_flag, ref->path_consumed);
 }
 
@@ -303,9 +303,7 @@ static struct vfsmount *cifs_dfs_do_automount(struct dentry *mntpt)
 	 * gives us the latter, so we must adjust the result.
 	 */
 	mnt = ERR_PTR(-ENOMEM);
-
-	/* always use tree name prefix */
-	full_path = build_path_from_dentry_optional_prefix(mntpt, true);
+	full_path = build_path_from_dentry(mntpt);
 	if (full_path == NULL)
 		goto cdda_exit;
 

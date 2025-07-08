@@ -37,7 +37,7 @@
 #include <linux/of_net.h>
 #include <linux/of_platform.h>
 
-#include <asm/uaccess.h>
+#include <linux/uaccess.h>
 #include <asm/irq.h>
 #include <asm/io.h>
 #include <soc/fsl/qe/immap_qe.h>
@@ -1888,6 +1888,8 @@ static void ucc_geth_free_tx(struct ucc_geth_private *ugeth)
 	u16 i, j;
 	u8 __iomem *bd;
 
+	netdev_reset_queue(ugeth->ndev);
+
 	ug_info = ugeth->ug_info;
 	uf_info = &ug_info->uf_info;
 
@@ -3301,7 +3303,7 @@ static int ucc_geth_poll(struct napi_struct *napi, int budget)
 		howmany += ucc_geth_rx(ugeth, i, budget - howmany);
 
 	if (howmany < budget) {
-		napi_complete(napi);
+		napi_complete_done(napi, howmany);
 		setbits32(ugeth->uccf->p_uccm, UCCE_RX_EVENTS | UCCE_TX_EVENTS);
 	}
 
@@ -3679,7 +3681,6 @@ static const struct net_device_ops ucc_geth_netdev_ops = {
 	.ndo_start_xmit		= ucc_geth_start_xmit,
 	.ndo_validate_addr	= eth_validate_addr,
 	.ndo_set_mac_address	= ucc_geth_set_mac_addr,
-	.ndo_change_mtu		= eth_change_mtu,
 	.ndo_set_rx_mode	= ucc_geth_set_multi,
 	.ndo_tx_timeout		= ucc_geth_timeout,
 	.ndo_do_ioctl		= ucc_geth_ioctl,

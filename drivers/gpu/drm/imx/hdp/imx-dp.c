@@ -13,73 +13,15 @@
  */
 #include <linux/clk.h>
 #include <linux/kernel.h>
+#include <drm/drm_dp_helper.h>
+
 #ifdef DEBUG_FW_LOAD
 #include "mhdp_firmware.h"
 #endif
+
 #include "imx-hdp.h"
 #include "imx-hdmi.h"
 #include "imx-dp.h"
-
-#ifdef DEBUG_FW_LOAD
-void dp_fw_load(state_struct *state)
-{
-	DRM_INFO("loading hdmi firmware\n");
-	CDN_API_LoadFirmware(state,
-		(u8 *)mhdp_iram0_get_ptr(),
-		mhdp_iram0_get_size(),
-		(u8 *)mhdp_dram0_get_ptr(),
-		mhdp_dram0_get_size());
-}
-#endif
-int dp_fw_init(state_struct *state)
-{
-	u8 echo_msg[] = "echo test";
-	u8 echo_resp[sizeof(echo_msg) + 1];
-	struct imx_hdp *hdp = state_to_imx_hdp(state);
-	u32 core_rate;
-	int ret;
-	u8 resp;
-
-	core_rate = clk_get_rate(hdp->clks.clk_core);
-
-	/* configure the clock */
-	CDN_API_SetClock(state, core_rate/1000000);
-	pr_info("CDN_API_SetClock completed\n");
-
-	cdn_apb_write(state, APB_CTRL << 2, 0);
-	DRM_INFO("Started firmware!\n");
-
-	ret = CDN_API_CheckAlive_blocking(state);
-	if (ret != 0) {
-		DRM_ERROR("CDN_API_CheckAlive failed - check firmware!\n");
-		return -ENXIO;
-	}
-
-	DRM_INFO("CDN_API_CheckAlive returned ret = %d\n", ret);
-
-	/* turn on IP activity */
-	ret = CDN_API_MainControl_blocking(state, 1, &resp);
-	DRM_INFO("CDN_API_MainControl_blocking (ret = %d resp = %u)\n",
-		ret, resp);
-
-	ret = CDN_API_General_Test_Echo_Ext_blocking(state, echo_msg, echo_resp,
-		sizeof(echo_msg), CDN_BUS_TYPE_APB);
-	if (strncmp(echo_msg, echo_resp, sizeof(echo_msg)) != 0) {
-		DRM_ERROR("CDN_API_General_Test_Echo_Ext_blocking - echo test failed, check firmware!");
-		return -ENXIO;
-	}
-	DRM_INFO("CDN_API_General_Test_Echo_Ext_blocking (ret = %d echo_resp = %s)\n",
-		ret, echo_resp);
-
-	/* Line swaping */
-	CDN_API_General_Write_Register_blocking(state,
-						ADDR_SOURCD_PHY +
-						(LANES_CONFIG << 2),
-						0x00400000 | hdp->lane_mapping);
-	DRM_INFO("CDN_API_General_Write_Register_blockin ... setting LANES_CONFIG\n");
-
-	return 0;
-}
 
 int dp_phy_init(state_struct *state, struct drm_display_mode *mode, int format,
 		int color_depth)
@@ -112,6 +54,7 @@ int dp_phy_init(state_struct *state, struct drm_display_mode *mode, int format,
 }
 
 #ifdef DEBUG
+
 void print_header(void)
 {
 	/*       "0x00000000: 00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f"*/
@@ -121,7 +64,7 @@ void print_header(void)
 		 );
 }
 
-void print_bytes(unsigned int addr, unsigned char *buf, unsigned int size)
+static void print_bytes(unsigned int addr, unsigned char *buf, unsigned int size)
 {
 	int i, index = 0;
 	char line[160];
@@ -136,7 +79,7 @@ void print_bytes(unsigned int addr, unsigned char *buf, unsigned int size)
 
 }
 
-int dump_dpcd(state_struct *state)
+static int dump_dpcd(state_struct *state)
 {
 	int ret;
 
@@ -153,6 +96,14 @@ int dump_dpcd(state_struct *state)
 	print_bytes(resp_dpcd.addr, resp_dpcd.buff, resp_dpcd.size);
 
 	ret = CDN_API_DPTX_Read_DPCD_blocking(state, 0x10, 0x100, &resp_dpcd,
+					      CDN_BUS_TYPE_APB);
+	if (ret) {
+		DRM_INFO("_debug: function returned with status %d\n", ret);
+		return -1;
+	}
+	print_bytes(resp_dpcd.addr, resp_dpcd.buff, resp_dpcd.size);
+
+	ret = CDN_API_DPTX_Read_DPCD_blocking(state, 0x10, 0x110, &resp_dpcd,
 					      CDN_BUS_TYPE_APB);
 	if (ret) {
 		DRM_INFO("_debug: function returned with status %d\n", ret);
@@ -220,7 +171,33 @@ int dump_dpcd(state_struct *state)
 }
 #endif
 
-int dp_get_training_status(state_struct *state)
+static bool dp_check_link_status(state_struct *state, u8 num_lanes)
+{
+	u8 link_status[DP_LINK_STATUS_SIZE];
+	DPTX_Read_DPCD_response read_resp;
+	CDN_API_STATUS status;
+
+	status = CDN_API_DPTX_Read_DPCD_blocking(state,
+					      DP_LINK_STATUS_SIZE,
+					      DP_LANE0_1_STATUS,
+					      &read_resp,
+					      CDN_BUS_TYPE_APB);
+
+	memcpy(link_status, read_resp.buff, DP_LINK_STATUS_SIZE);
+
+	if (status != CDN_OK) {
+		return false;
+	}
+
+	DRM_DEBUG("link status 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x 0x%02x\n",
+		 link_status[0],link_status[1],link_status[2],
+		 link_status[3],link_status[4],link_status[5]);
+
+	/* if link training is requested we should perform it always */
+	return drm_dp_channel_eq_ok(link_status, num_lanes);
+}
+
+static int dp_get_training_status(state_struct *state)
 {
 	uint32_t evt;
 	uint8_t eventId;
@@ -269,6 +246,79 @@ int dp_get_training_status(state_struct *state)
 	return 0;
 }
 
+#define aux_to_hdp(x) container_of(x, struct imx_hdp, aux)
+
+/*
+ * This function only implements native DPDC reads and writes
+ */
+static ssize_t dp_aux_transfer(struct drm_dp_aux *aux,
+		struct drm_dp_aux_msg *msg)
+{
+	struct imx_hdp *hdp = aux_to_hdp(aux);
+	bool native = msg->request & (DP_AUX_NATIVE_WRITE & DP_AUX_NATIVE_READ);
+	CDN_API_STATUS status;
+
+	DRM_DEBUG("\n");
+	DRM_INFO("%s() msg->request 0x%x msg->size 0x%x\n",
+	       __func__, msg->request, (unsigned int)msg->size);
+
+
+	/* Ignore address only message */
+	if ((msg->size == 0) || (msg->buffer == NULL)) {
+		msg->reply = native ?
+			DP_AUX_NATIVE_REPLY_ACK : DP_AUX_I2C_REPLY_ACK;
+		return msg->size;
+	}
+
+	if (!native) {
+		pr_err("%s: only native messages supported\n",
+			__func__);
+		return -EINVAL;
+	}
+
+	/* msg sanity check */
+	if (msg->size > DP_AUX_MAX_PAYLOAD_BYTES) {
+		pr_err("%s: invalid msg: size(%zu), request(%x)\n",
+			__func__, msg->size, (unsigned int)msg->request);
+		return -EINVAL;
+	}
+
+	if (msg->request == DP_AUX_NATIVE_WRITE) {
+		DPTX_Write_DPCD_response write_resp;
+
+		status = CDN_API_DPTX_Write_DPCD_blocking(&hdp->state,
+							  msg->size,
+							  msg->address,
+							  (u8 *)msg->buffer,
+							  &write_resp,
+							  CDN_BUS_TYPE_APB);
+
+		if (status != CDN_OK)
+			return -EIO;
+		/* fixme: is this right? */
+		//return  msg->size;
+	}
+
+	if (msg->request == DP_AUX_NATIVE_READ) {
+		DPTX_Read_DPCD_response read_resp;
+
+		status = CDN_API_DPTX_Read_DPCD_blocking(&hdp->state,
+						      msg->size,
+						      msg->address,
+						      &read_resp,
+						      CDN_BUS_TYPE_APB);
+		if (status != CDN_OK)
+			return -EIO;
+		memcpy(msg->buffer, read_resp.buff, read_resp.size);
+		msg->reply = DP_AUX_NATIVE_REPLY_ACK;
+#ifdef DEBUG
+		print_bytes(read_resp.addr, read_resp.buff, read_resp.size);
+#endif
+		return read_resp.size;
+	}
+	return 0;
+}
+
 /* Max Link Rate: 06h (1.62Gbps), 0Ah (2.7Gbps), 14h (5.4Gbps),
  * 1Eh (8.1Gbps)--N/A
  */
@@ -280,7 +330,7 @@ void dp_mode_set(state_struct *state,
 {
 	struct imx_hdp *hdp = state_to_imx_hdp(state);
 	int ret;
-	u8 training_retries = 10;
+	u8 training_retries = 10, training_restarts = 10;
 	/* Set Host capabilities */
 	/* Number of lanes and SSC */
 	u8 num_lanes = 4;
@@ -297,8 +347,7 @@ void dp_mode_set(state_struct *state,
 	/* AUX training? */
 	u8 no_aux_training = 0;
 	/* Lane mapping */
-	u8 lane_mapping = hdp->lane_mapping; /*  we have 4 lane, so it's OK */
-
+	u8 lane_mapping = hdp->dp_lane_mapping;
 	/* Extended Host capabilities */
 	u8 ext_host_cap = 1;
 	/* Bits per sub-pixel */
@@ -310,16 +359,56 @@ void dp_mode_set(state_struct *state,
 	/* Transfer Unit */
 	u8 transfer_unit = 64;
 	VIC_SYMBOL_RATE sym_rate;
-	u8 link_rate;
-	GENERAL_Read_Register_response regresp;
+	u8 link_rate = RATE_1_6;
+	struct drm_dp_link link;
+
+#ifdef DEBUG
+	S_LINK_STAT rls;
+#endif
+	char linkid[6];
+
+	DRM_INFO("dp_mode_set()\n");
+
+	ret = drm_dp_downstream_id(&hdp->aux, linkid);
+	if (ret < 0) {
+		DRM_INFO("Failed to Get DP link ID: %d\n", ret);
+		return;
+	}
+	DRM_INFO("DP link id: %s, 0x%x 0x%x 0x%x 0x%x 0x%x 0x%x\n",
+		 linkid, linkid[0], linkid[1], linkid[2], linkid[3], linkid[4],
+		 linkid[5]);
+
+	/* Check dp link */
+	ret = drm_dp_link_probe(&hdp->aux, &link);
+	if (ret < 0) {
+		DRM_INFO("Failed to probe DP link: %d\n", ret);
+		return;
+	}
+	DRM_INFO("DP revision: 0x%x\n", link.revision);
+	DRM_INFO("DP rate: %d Mbps\n", link.rate/100);
+	DRM_INFO("DP number of lanes: %d\n", link.num_lanes);
+	DRM_INFO("DP capabilities: 0x%lx\n", link.capabilities);
+
+	/* always use the number of lanes from the display*/
+	num_lanes = link.num_lanes;
+
+	/* Use the lower link rate if dp_link_rate is set */
+	if (hdp->dp_link_rate != 0) {
+		link_rate = min(hdp->dp_link_rate,
+			(u32)(drm_dp_link_rate_to_bw_code(link.rate)));
+		DRM_INFO("DP actual link rate:  0x%x\n", link_rate);
+		hdp->link_rate = link_rate;
+
+		/* need change the link rate */
+		hdp->ops->phy_init(state,
+				   mode,
+				   format,
+				   color_depth);
+	}
 
 	if (hdp->is_edp) {
-		/* eDP uses device tree link rate and number of lanes */
-		link_rate = hdp->edp_link_rate;
-		num_lanes = hdp->edp_num_lanes;
-
 		/* use the eDP supported rates */
-		switch (max_link_rate) {
+		switch (link_rate) {
 		case AFE_LINK_RATE_1_6:
 			sym_rate = RATE_1_6;
 			break;
@@ -346,9 +435,7 @@ void dp_mode_set(state_struct *state,
 			sym_rate = RATE_1_6;
 		}
 	} else {
-		link_rate = max_link_rate;
-
-		switch (max_link_rate) {
+		switch (link_rate) {
 		case 0x0a:
 			sym_rate = RATE_2_7;
 			break;
@@ -372,7 +459,6 @@ void dp_mode_set(state_struct *state,
 		);
 	DRM_INFO("CDN_API_DPTX_SetHostCap_blocking (ret = %d)\n", ret);
 
-
 	ret = CDN_API_DPTX_Set_VIC_blocking(state,
 		mode,
 		bits_per_subpixel,
@@ -385,30 +471,45 @@ void dp_mode_set(state_struct *state,
 		);
 	DRM_INFO("CDN_API_DPTX_Set_VIC_blocking (ret = %d)\n", ret);
 
-	CDN_API_General_Read_Register_blocking(state, ADDR_DPTX_FRAMER +
-					       (DP_FRAMER_SP << 2), &regresp);
-	DRM_INFO("Initial DP_FRAMER_SP: 0x%.2X\n", regresp.val);
-	regresp.val &= ~0x03; // clear HSP and VSP bits
-
-	DRM_INFO("Final DP_FRAMER_SP: 0x%.2X\n", regresp.val);
-	CDN_API_General_Write_Register_blocking(state, ADDR_DPTX_FRAMER +
-						(DP_FRAMER_SP << 2),
-						regresp.val);
-
+	training_restarts=5;
 	do {
-		ret = CDN_API_DPTX_TrainingControl_blocking(state, 1);
-		DRM_DEBUG("CDN_API_DPTX_TrainingControl_blocking (ret = %d) start\n",
-			   ret);
-		if (dp_get_training_status(state) == 0)
-			break;
-		training_retries--;
 
-		ret = CDN_API_DPTX_TrainingControl_blocking(state, 0);
-		DRM_DEBUG("CDN_API_DPTX_TrainingControl_blocking (ret = %d) stop\n",
-			   ret);
+		do {
+			ret = CDN_API_DPTX_TrainingControl_blocking(state, 1);
+			DRM_INFO("CDN_API_DPTX_TrainingControl_* (ret = %d) start\n",
+				   ret);
+			if ((dp_get_training_status(state) == 0) /*&&
+			     dp_check_link_status(state, num_lanes)*/)
+				break;
+			training_retries--;
+
+			ret = CDN_API_DPTX_TrainingControl_blocking(state, 0);
+			DRM_INFO("CDN_API_DPTX_TrainingControl_* (ret = %d) stop\n",
+				   ret);
+			udelay(1000);
+
+		} while (training_retries > 0);
+
 		udelay(1000);
 
-	} while (training_retries > 0);
+		if (dp_check_link_status(state, num_lanes) == true) {
+		        DRM_INFO("Link is good - Training complete\n");
+		        break;
+		} else {
+			DRM_INFO("Link is bad - need to restart training\n");
+			training_restarts--;
+			training_retries = 20;
+
+			ret = CDN_API_DPTX_TrainingControl_blocking(state, 0);
+			DRM_INFO("CDN_API_DPTX_TrainingControl_* (ret = %d) stop\n",
+				   ret);
+			udelay(1000);
+		}
+
+
+	} while (training_restarts > 0);
+
+	DRM_INFO("dp_check_link_status %d\n", dp_check_link_status(state, num_lanes));
 
 	/* Set video on */
 	ret = CDN_API_DPTX_SetVideo_blocking(state, 1);
@@ -425,14 +526,17 @@ void dp_mode_set(state_struct *state,
 		 rls.preemphasis[2]);
 	dump_dpcd(state);
 #endif
-
 }
 
 int dp_get_edid_block(void *data, u8 *buf, unsigned int block, size_t len)
 {
 	DPTX_Read_EDID_response edidResp;
 	state_struct *state = data;
-	CDN_API_STATUS ret = 0;
+	CDN_API_STATUS ret = CDN_ERROR_NOT_SUPPORTED;
+
+	if (buf == NULL) {
+		return -EINVAL;
+	}
 
 	memset(&edidResp, 0, sizeof(edidResp));
 	switch (block) {
@@ -452,9 +556,14 @@ int dp_get_edid_block(void *data, u8 *buf, unsigned int block, size_t len)
 		DRM_WARN("EDID block %x read not support\n", block);
 	}
 
-	memcpy(buf, edidResp.buff, 128);
+	DRM_INFO("dp_get_edid_block (ret = %d) block %d\n", ret, block);
+	if (ret == CDN_OK) {
+		memcpy(buf, edidResp.buff, 128);
+		return 0;
+	}
 
-	return ret;
+	memset(buf, 0, 128);
+	return -EIO;
 }
 
 int dp_get_hpd_state(state_struct *state, u8 *hpd)
@@ -465,6 +574,22 @@ int dp_get_hpd_state(state_struct *state, u8 *hpd)
 	return ret;
 }
 
+void dp_phy_pix_engine_reset_t28hpc(state_struct *state)
+{
+	GENERAL_Read_Register_response regresp;
+
+	CDN_API_General_Read_Register_blocking(state, ADDR_SOURCE_CAR +
+					       (SOURCE_HDTX_CAR << 2),
+					       &regresp);
+	CDN_API_General_Write_Register_blocking(state, ADDR_SOURCE_CAR +
+						(SOURCE_HDTX_CAR << 2),
+						regresp.val & 0xFD);
+	CDN_API_General_Write_Register_blocking(state, ADDR_SOURCE_CAR +
+						(SOURCE_HDTX_CAR << 2),
+						regresp.val);
+}
+
+
 int dp_phy_init_t28hpc(state_struct *state,
 		       struct drm_display_mode *mode,
 		       int format,
@@ -474,21 +599,21 @@ int dp_phy_init_t28hpc(state_struct *state,
 	int max_link_rate = hdp->link_rate;
 	int num_lanes = 4;
 	int ret;
-	u8 lane_mapping = hdp->lane_mapping;
+	u8 lane_mapping = hdp->dp_lane_mapping;
+
 	/* reset phy */
 	imx_hdp_call(hdp, phy_reset, 0, &hdp->mem, 0);
+	DRM_INFO("asserted HDP PHY reset\n");
 
-	if (hdp->is_edp) {
-		max_link_rate = hdp->edp_link_rate;
-		num_lanes = hdp->edp_num_lanes;
-	}
+	dp_phy_pix_engine_reset_t28hpc(state);
+	DRM_INFO("pixel engine reset\n");
 
 	/* Line swaping */
 	CDN_API_General_Write_Register_blocking(state,
 						ADDR_SOURCD_PHY +
 						(LANES_CONFIG << 2),
 						0x00400000 | lane_mapping);
-	DRM_INFO("CDN_API_General_Write_Register_blocking ... setting LANES_CONFIG %x\n",
+	DRM_INFO("CDN_*_Write_Register_blocking ... setting LANES_CONFIG %x\n",
 		 lane_mapping);
 
 	/* PHY initialization while phy reset pin is active */
@@ -497,7 +622,7 @@ int dp_phy_init_t28hpc(state_struct *state,
 
 	/* In this point the phy reset should be deactivated */
 	imx_hdp_call(hdp, phy_reset, 0, &hdp->mem, 1);
-	DRM_INFO("deasserted reset\n");
+	DRM_INFO("deasserted HDP PHY reset\n");
 
 	/* PHY power set */
 	afe_power_t28hpc(state, num_lanes, (ENUM_AFE_LINK_RATE)max_link_rate);
@@ -508,4 +633,29 @@ int dp_phy_init_t28hpc(state_struct *state,
 	DRM_INFO("CDN_API_DPTX_SetVideo_blocking (ret = %d)\n", ret);
 
 	return true;
+}
+
+
+int dp_aux_init(state_struct *state,
+		  struct device *dev)
+{
+	struct imx_hdp *hdp = state_to_imx_hdp(state);
+	int ret;
+
+	hdp->aux.name = "imx_dp_aux";
+	hdp->aux.dev = dev;
+	hdp->aux.transfer = dp_aux_transfer;
+
+	ret = drm_dp_aux_register(&hdp->aux);
+
+	return ret;
+}
+
+int dp_aux_destroy(state_struct *state)
+{
+	struct imx_hdp *hdp = state_to_imx_hdp(state);
+
+	drm_dp_aux_unregister(&hdp->aux);
+
+	return 0;
 }

@@ -1,42 +1,33 @@
+// SPDX-License-Identifier: (GPL-2.0 OR MIT)
 /*
  * Copyright 2017 Toradex AG
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
  */
 
-#include <dt-bindings/input/input.h>
+#include <dt-bindings/pwm/pwm.h>
 
 / {
 	chosen {
-		bootargs = "console=ttymxc0,115200";
-	};
-
-	clocks {
-		/* fixed crystal dedicated to mcp251x */
-		clk16m: clk@1 {
-			compatible = "fixed-clock";
-			reg=<1>;
-			#clock-cells = <0>;
-			clock-frequency = <16000000>;
-			clock-output-names = "clk16m";
-		};
+		stdout-path = "serial0:115200n8";
 	};
 
 	gpio-keys {
 		compatible = "gpio-keys";
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_snvs_gpiokeys>;
-
 		power {
 			label = "Wake-Up";
 			gpios = <&gpio5 1 GPIO_ACTIVE_HIGH>;
 			linux,code = <KEY_WAKEUP>;
 			debounce-interval = <10>;
-			gpio-key,wakeup;
+			wakeup-source;
 		};
+	};
+
+	/* fixed crystal dedicated to mcp2515 */
+	clk16m: clk16m {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <16000000>;
 	};
 
 	extcon_usbc_det: usbc_det {
@@ -52,7 +43,6 @@
 		regulator-name = "3.3V";
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
-		regulator-always-on;
 	};
 
 	reg_5v0: regulator-5v0 {
@@ -65,7 +55,7 @@
 	reg_usbh_vbus: regulator-usbh-vbus {
 		compatible = "regulator-fixed";
 		pinctrl-names = "default";
-		pinctrl-0 = <&pinctrl_usbh1_reg>;
+		pinctrl-0 = <&pinctrl_usbh_reg>;
 		regulator-name = "VCC_USB[1-4]";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
@@ -74,14 +64,15 @@
 	};
 };
 
-&bl {
-	brightness-levels = <0 4 8 16 32 64 128 255>;
-	default-brightness-level = <6>;
-	pwms = <&pwm4 0 5000000 1>;
+&adc1 {
 	status = "okay";
 };
 
-&adc1 {
+&bl {
+	brightness-levels = <0 45 63 88 119 158 203 255>;
+	default-brightness-level = <4>;
+	power-supply = <&reg_3v3>;
+	pwms = <&pwm4 0 6666667 PWM_POLARITY_INVERTED>;
 	status = "okay";
 };
 
@@ -92,7 +83,7 @@
 &ecspi1 {
 	status = "okay";
 
-	mcp258x0: mcp258x@0 {
+	mcp2515: can@0 {
 		compatible = "microchip,mcp2515";
 		pinctrl-names = "default";
 		pinctrl-0 = <&pinctrl_can_int>;
@@ -101,6 +92,8 @@
 		interrupt-parent = <&gpio2>;
 		interrupts = <4 IRQ_TYPE_EDGE_FALLING>;
 		spi-max-frequency = <10000000>;
+		vdd-supply = <&reg_3v3>;
+		xceiver-supply = <&reg_5v0>;
 		status = "okay";
 	};
 
@@ -112,31 +105,25 @@
 	};
 };
 
-#if 0
 &flexcan1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_flexcan1>;
-	status = "okay";
+	status = "disabled";
 };
 
 &flexcan2 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_flexcan2>;
-	status = "okay";
+	status = "disabled";
 };
-#endif
 
 &i2c1 {
-	pinctrl-names = "default", "gpio";
-	pinctrl-0 = <&pinctrl_i2c1>;
-	pinctrl-1 = <&pinctrl_i2c1_gpio>;
-	sda-gpios = <&gpio1 29 GPIO_ACTIVE_LOW>;
-	scl-gpios = <&gpio1 28 GPIO_ACTIVE_LOW>;
 	status = "okay";
 
-/* the PCAPs use SODIMM 28/30, also used for PWM<B>, PWM<C>, aka pwm5, pwm6.
-   so if you enable one of the PCAP controllers disable the pwms */
-	/* Atmel maxtouch controller */
+	/*
+	 * the PCAPs use SODIMM 28/30, also used for PWM<B>, PWM<C>, aka pwm5,
+	 * pwm6. so if you enable one of the PCAP controllers disable the pwms
+	 */
 	atmel_mxt_ts: atmel_mxt_ts@4a {
 		compatible = "atmel,maxtouch";
 		pinctrl-names = "default";
@@ -162,7 +149,7 @@
 	};
 
 	/* M41T0M6 real time clock on carrier board */
-	rtc: m41t0m6@68 {
+	m41t0m6: rtc@68 {
 		compatible = "st,m41t0";
 		reg = <0x68>;
 	};
@@ -286,8 +273,6 @@
 	};
 };
 
-/* the PCAPs use SODIMM 28/30, also used for PWM<B>, PWM<C>, aka pwm5, pwm6.
-   so if you enable one of the PCAP controllers disable the pwms */
 /* PWM <A> */
 &pwm4 {
 	status = "okay";
@@ -338,31 +323,32 @@
 /* #define SD_1_8 */
 &usdhc1 {
 #ifdef SD_1_8
-	pinctrl-names = "default", "state_100mhz", "state_200mhz";
-	pinctrl-0 = <&pinctrl_usdhc1 &pinctrl_snvs_cd_usdhc1>;
-	pinctrl-1 = <&pinctrl_usdhc1_100mhz &pinctrl_snvs_cd_usdhc1>;
-	pinctrl-2 = <&pinctrl_usdhc1_200mhz &pinctrl_snvs_cd_usdhc1>;
+	pinctrl-names = "default", "state_100mhz", "state_200mhz", "sleep";
+	pinctrl-0 = <&pinctrl_usdhc1 &pinctrl_snvs_usdhc1_cd>;
+	pinctrl-1 = <&pinctrl_usdhc1_100mhz &pinctrl_snvs_usdhc1_cd>;
+	pinctrl-2 = <&pinctrl_usdhc1_200mhz &pinctrl_snvs_usdhc1_cd>;
+	pinctrl-3 = <&pinctrl_usdhc1 &pinctrl_snvs_usdhc1_cd_sleep>;
 	vqmmc-supply = <&reg_sd1_vmmc>;
 #else
 	pinctrl-names = "default";
-	pinctrl-0 = <&pinctrl_usdhc1 &pinctrl_snvs_cd_usdhc1>;
+	pinctrl-0 = <&pinctrl_usdhc1 &pinctrl_snvs_usdhc1_cd>;
 	no-1-8-v;
 #endif
 	cd-gpios = <&gpio5 0 GPIO_ACTIVE_LOW>;
 	disable-wp;
-	enable-sdio-wakeup;
+	wakeup-source;
 	keep-power-in-suspend;
-	status = "okay";
 	vmmc-supply = <&reg_3v3>;
+	status = "okay";
 };
 
 &iomuxc {
-	imx6ull-eval-v3 {
-		pinctrl_gpiotouch: touchgpios {
-			fsl,pins = <
-				MX6UL_PAD_NAND_DQS__GPIO4_IO16		0x74
-				MX6UL_PAD_ENET1_TX_EN__GPIO2_IO05	0x14
-			>;
-		};
+	imx6ull-colibri {
+	pinctrl_gpiotouch: touchgpios {
+		fsl,pins = <
+			MX6UL_PAD_NAND_DQS__GPIO4_IO16		0x74
+			MX6UL_PAD_ENET1_TX_EN__GPIO2_IO05	0x14
+		>;
+	};
 	};
 };

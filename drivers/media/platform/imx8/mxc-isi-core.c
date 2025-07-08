@@ -9,7 +9,6 @@
  * http://www.opensource.org/licenses/gpl-license.html
  * http://www.gnu.org/copyleft/gpl.html
  */
-
 #include "mxc-media-dev.h"
 
 static irqreturn_t mxc_isi_irq_handler(int irq, void *priv)
@@ -23,8 +22,12 @@ static irqreturn_t mxc_isi_irq_handler(int irq, void *priv)
 	status = mxc_isi_get_irq_status(mxc_isi);
 	mxc_isi_clean_irq_status(mxc_isi, status);
 
-	if (status & CHNL_STS_FRM_STRD_MASK)
-		mxc_isi_frame_write_done(mxc_isi);
+	if (status & CHNL_STS_FRM_STRD_MASK) {
+		if (mxc_isi->is_m2m)
+			mxc_isi_m2m_frame_write_done(mxc_isi);
+		else
+			mxc_isi_cap_frame_write_done(mxc_isi);
+	}
 
 	if (status & (CHNL_STS_AXI_WR_ERR_Y_MASK |
 					CHNL_STS_AXI_WR_ERR_U_MASK |
@@ -107,6 +110,7 @@ static int mxc_isi_parse_dt(struct mxc_isi_dev *mxc_isi)
 	return 0;
 }
 
+
 static int mxc_isi_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
@@ -133,6 +137,8 @@ static int mxc_isi_probe(struct platform_device *pdev)
 	init_waitqueue_head(&mxc_isi->irq_queue);
 	spin_lock_init(&mxc_isi->slock);
 	mutex_init(&mxc_isi->lock);
+	mutex_init(&mxc_isi->m2m_lock);
+	atomic_set(&mxc_isi->open_count, 0);
 
 	mxc_isi->clk = devm_clk_get(dev, NULL);
 	if (IS_ERR(mxc_isi->clk)) {
@@ -157,6 +163,8 @@ static int mxc_isi_probe(struct platform_device *pdev)
 		dev_err(dev, "Failed to get IRQ resource\n");
 		return -ENXIO;
 	}
+
+	mxc_isi_clean_registers(mxc_isi);
 
 	ret = devm_request_irq(dev, res->start, mxc_isi_irq_handler,
 			       0, dev_name(dev), mxc_isi);
@@ -207,6 +215,13 @@ static int mxc_isi_remove(struct platform_device *pdev)
 #ifdef CONFIG_PM_SLEEP
 static int mxc_isi_pm_suspend(struct device *dev)
 {
+	struct mxc_isi_dev *mxc_isi = dev_get_drvdata(dev);
+
+	if (mxc_isi->is_streaming) {
+		dev_warn(dev, "running, prevent entering suspend.\n");
+		return -EAGAIN;
+	}
+
 	return pm_runtime_force_suspend(dev);
 }
 
@@ -258,3 +273,9 @@ static struct platform_driver mxc_isi_driver = {
 };
 
 module_platform_driver(mxc_isi_driver);
+
+MODULE_AUTHOR("Freescale Semiconductor, Inc.");
+MODULE_DESCRIPTION("MXC Image Subsystem driver");
+MODULE_LICENSE("GPL");
+MODULE_ALIAS("ISI");
+MODULE_VERSION("1.0");

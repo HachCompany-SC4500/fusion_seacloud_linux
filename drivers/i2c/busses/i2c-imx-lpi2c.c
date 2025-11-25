@@ -28,6 +28,7 @@
 #include <linux/module.h>
 #include <linux/of.h>
 #include <linux/of_device.h>
+#include <linux/pinctrl/consumer.h>
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/sched.h>
@@ -84,9 +85,6 @@
 #define I2C_CLK_RATIO	2
 #define CHUNK_DATA	256
 
-#define LPI2C_RX_FIFOSIZE	4
-#define LPI2C_TX_FIFOSIZE	4
-
 #define LPI2C_DEFAULT_RATE	200000
 #define STARDARD_MAX_BITRATE	400000
 #define FAST_MAX_BITRATE	1000000
@@ -123,6 +121,8 @@ struct lpi2c_imx_struct {
 	unsigned int		delivered;
 	unsigned int		block_data;
 	unsigned int		bitrate;
+	unsigned int		txfifosize;
+	unsigned int		rxfifosize;
 	enum lpi2c_imx_mode	mode;
 };
 
@@ -358,7 +358,7 @@ static int lpi2c_imx_txfifo_empty(struct lpi2c_imx_struct *lpi2c_imx)
 
 static void lpi2c_imx_set_tx_watermark(struct lpi2c_imx_struct *lpi2c_imx)
 {
-	writel(LPI2C_TX_FIFOSIZE >> 1, lpi2c_imx->base + LPI2C_MFCR);
+	writel(lpi2c_imx->txfifosize >> 1, lpi2c_imx->base + LPI2C_MFCR);
 }
 
 static void lpi2c_imx_set_rx_watermark(struct lpi2c_imx_struct *lpi2c_imx)
@@ -367,8 +367,8 @@ static void lpi2c_imx_set_rx_watermark(struct lpi2c_imx_struct *lpi2c_imx)
 
 	remaining = lpi2c_imx->msglen - lpi2c_imx->delivered;
 
-	if (remaining > (LPI2C_RX_FIFOSIZE >> 1))
-		temp = LPI2C_RX_FIFOSIZE >> 1;
+	if (remaining > (lpi2c_imx->rxfifosize >> 1))
+		temp = lpi2c_imx->rxfifosize >> 1;
 	else
 		temp = 0;
 
@@ -381,7 +381,7 @@ static void lpi2c_imx_write_txfifo(struct lpi2c_imx_struct *lpi2c_imx)
 
 	txcnt = readl(lpi2c_imx->base + LPI2C_MFSR) & 0xff;
 
-	while (txcnt < LPI2C_TX_FIFOSIZE) {
+	while (txcnt < lpi2c_imx->txfifosize) {
 		if (lpi2c_imx->delivered == lpi2c_imx->msglen)
 			break;
 
@@ -552,7 +552,7 @@ static u32 lpi2c_imx_func(struct i2c_adapter *adapter)
 		I2C_FUNC_SMBUS_READ_BLOCK_DATA;
 }
 
-static struct i2c_algorithm lpi2c_imx_algo = {
+static const struct i2c_algorithm lpi2c_imx_algo = {
 	.master_xfer	= lpi2c_imx_xfer,
 	.functionality	= lpi2c_imx_func,
 };
@@ -568,6 +568,7 @@ static int lpi2c_imx_probe(struct platform_device *pdev)
 {
 	struct lpi2c_imx_struct *lpi2c_imx;
 	struct resource *res;
+	unsigned int temp;
 	int ret;
 
 	lpi2c_imx = devm_kzalloc(&pdev->dev, sizeof(*lpi2c_imx), GFP_KERNEL);
@@ -615,6 +616,12 @@ static int lpi2c_imx_probe(struct platform_device *pdev)
 	pm_runtime_set_autosuspend_delay(&pdev->dev, I2C_PM_TIMEOUT);
 	pm_runtime_use_autosuspend(&pdev->dev);
 	pm_runtime_enable(&pdev->dev);
+
+	pm_runtime_get_sync(&pdev->dev);
+	temp = readl(lpi2c_imx->base + LPI2C_PARAM);
+	lpi2c_imx->txfifosize = 1 << (temp & 0x0f);
+	lpi2c_imx->rxfifosize = 1 << ((temp >> 8) & 0x0f);
+	pm_runtime_put(&pdev->dev);
 
 	ret = i2c_add_adapter(&lpi2c_imx->adapter);
 	if (ret)
@@ -694,6 +701,7 @@ static int lpi2c_suspend_noirq(struct device *dev)
 		return ret;
 
 	pinctrl_pm_select_sleep_state(dev);
+
 	return 0;
 }
 

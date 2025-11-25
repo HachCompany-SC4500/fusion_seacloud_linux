@@ -68,7 +68,7 @@ static int imx8_pd_power(struct generic_pm_domain *domain, bool power_on)
 
 	pd = container_of(domain, struct imx8_pm_domain, pd);
 
-	if (pd->rsrc_id == SC_R_LAST)
+	if (pd->rsrc_id == SC_R_NONE)
 		return 0;
 
 	/* keep uart console power on for no_console_suspend */
@@ -84,8 +84,19 @@ static int imx8_pd_power(struct generic_pm_domain *domain, bool power_on)
 	sci_err = sc_pm_set_resource_power_mode(pm_ipc_handle, pd->rsrc_id,
 		(power_on) ? SC_PM_PW_MODE_ON :
 		pd->pd.state_idx ? SC_PM_PW_MODE_OFF : SC_PM_PW_MODE_LP);
-	if (sci_err)
-		pr_err("Failed power operation on resource %d\n", pd->rsrc_id);
+	if (sci_err) {
+		pr_err("Failed power operation on resource %d sc_err %d\n",
+				pd->rsrc_id, sci_err);
+		return -EINVAL;
+	}
+
+	/* keep HDMI TX resource power on */
+	if (power_on && (pd->rsrc_id == SC_R_HDMI ||
+					pd->rsrc_id == SC_R_HDMI_I2S ||
+					pd->rsrc_id == SC_R_HDMI_I2C_0 ||
+					pd->rsrc_id == SC_R_HDMI_PLL_0 ||
+					pd->rsrc_id == SC_R_HDMI_PLL_1))
+		pd->pd.flags |= GENPD_FLAG_ALWAYS_ON;
 
 	return 0;
 }
@@ -99,6 +110,8 @@ static int imx8_pd_power_on(struct generic_pm_domain *domain)
 	pd = container_of(domain, struct imx8_pm_domain, pd);
 
 	ret = imx8_pd_power(domain, true);
+	if (ret)
+		return ret;
 
 	if (!list_empty(&pd->clks) && (pd->pd.state_idx == PD_OFF)) {
 
@@ -172,7 +185,7 @@ static int imx8_pd_power_on(struct generic_pm_domain *domain)
 		}
 	}
 
-	return ret;
+	return 0;
 }
 
 static int imx8_pd_power_off(struct generic_pm_domain *domain)
@@ -238,6 +251,7 @@ static int imx8_attach_dev(struct generic_pm_domain *genpd, struct device *dev)
 		if (!imx8_rsrc_clk)
 			return -ENOMEM;
 
+		imx8_rsrc_clk->dev = dev;
 		imx8_rsrc_clk->clk = of_clk_get_from_provider(&clkspec);
 		if (!IS_ERR(imx8_rsrc_clk->clk))
 			list_add_tail(&imx8_rsrc_clk->node, &pd->clks);
@@ -257,6 +271,9 @@ static void imx8_detach_dev(struct generic_pm_domain *genpd, struct device *dev)
 		return;
 
 	list_for_each_entry_safe(imx8_rsrc_clk, tmp, &pd->clks, node) {
+		/* only delete those clocks belonged to this devive */
+		if (imx8_rsrc_clk->dev != dev)
+			continue;
 		list_del(&imx8_rsrc_clk->node);
 		devm_kfree(dev, imx8_rsrc_clk);
 	}
@@ -307,6 +324,9 @@ struct syscore_ops imx8_pm_domains_syscore_ops = {
 
 static void imx8_pd_setup(struct imx8_pm_domain *pd)
 {
+	pd->pd.states = kzalloc(2 * sizeof(struct genpd_power_state), GFP_KERNEL);
+	BUG_ON(!pd->pd.states);
+
 	pd->pd.power_off = imx8_pd_power_off;
 	pd->pd.power_on = imx8_pd_power_on;
 	pd->pd.attach_dev = imx8_attach_dev;
@@ -344,7 +364,7 @@ static int __init imx8_add_pm_domains(struct device_node *parent,
 		if (!of_property_read_u32(np, "reg", &rsrc_id))
 			imx8_pd->rsrc_id = rsrc_id;
 
-		if (imx8_pd->rsrc_id != SC_R_LAST) {
+		if (imx8_pd->rsrc_id != SC_R_NONE) {
 			imx8_pd_setup(imx8_pd);
 
 			if (of_property_read_bool(np, "early_power_on")
@@ -402,7 +422,7 @@ static int __init imx8_init_pm_domains(void)
 		if (!of_property_read_u32(np, "reg", &rsrc_id))
 			imx8_pd->rsrc_id = rsrc_id;
 
-		if (imx8_pd->rsrc_id != SC_R_LAST)
+		if (imx8_pd->rsrc_id != SC_R_NONE)
 			imx8_pd_setup(imx8_pd);
 
 		INIT_LIST_HEAD(&imx8_pd->clks);

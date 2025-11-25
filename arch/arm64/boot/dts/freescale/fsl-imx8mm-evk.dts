@@ -45,6 +45,13 @@
 		#reset-cells = <0>;
 	};
 
+	ir_recv: ir-receiver {
+		compatible = "gpio-ir-receiver";
+		gpios = <&gpio1 13 GPIO_ACTIVE_LOW>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&pinctrl_ir_recv>;
+	};
+
 	regulators {
 		compatible = "simple-bus";
 		#address-cells = <1>;
@@ -67,6 +74,7 @@
 			regulator-min-microvolt = <3300000>;
 			regulator-max-microvolt = <3300000>;
 			gpio = <&gpio2 19 GPIO_ACTIVE_HIGH>;
+			off-on-delay = <20000>;
 			enable-active-high;
 		};
 
@@ -149,6 +157,12 @@
 		pinctrl_csi_pwn: csi_pwn_grp {
 			fsl,pins = <
 				MX8MM_IOMUXC_GPIO1_IO07_GPIO1_IO7		0x19
+			>;
+		};
+
+		pinctrl_ir_recv: ir_recv {
+			fsl,pins = <
+				MX8MM_IOMUXC_GPIO1_IO13_GPIO1_IO13		0x14f
 			>;
 		};
 
@@ -260,6 +274,23 @@
 				MX8MM_IOMUXC_SAI1_MCLK_SAI1_MCLK	0xd6
 				MX8MM_IOMUXC_SAI1_TXFS_SAI1_TX_SYNC	0xd6
 				MX8MM_IOMUXC_SAI1_RXD7_SAI1_TX_SYNC	0xd6
+				MX8MM_IOMUXC_SAI1_TXC_SAI1_TX_BCLK	0xd6
+				MX8MM_IOMUXC_SAI1_TXD0_SAI1_TX_DATA0	0xd6
+				MX8MM_IOMUXC_SAI1_TXD1_SAI1_TX_DATA1	0xd6
+				MX8MM_IOMUXC_SAI1_TXD2_SAI1_TX_DATA2	0xd6
+				MX8MM_IOMUXC_SAI1_TXD3_SAI1_TX_DATA3	0xd6
+				MX8MM_IOMUXC_SAI1_TXD4_SAI1_TX_DATA4	0xd6
+				MX8MM_IOMUXC_SAI1_TXD5_SAI1_TX_DATA5	0xd6
+				MX8MM_IOMUXC_SAI1_TXD6_SAI1_TX_DATA6	0xd6
+				MX8MM_IOMUXC_SAI1_TXD7_SAI1_TX_DATA7	0xd6
+			>;
+		};
+
+		pinctrl_sai1_dsd: sai1grp_dsd {
+			fsl,pins = <
+				MX8MM_IOMUXC_SAI1_MCLK_SAI1_MCLK	0xd6
+				MX8MM_IOMUXC_SAI1_TXFS_SAI1_TX_SYNC	0xd6
+				MX8MM_IOMUXC_SAI1_RXD7_SAI1_TX_DATA4	0xd6
 				MX8MM_IOMUXC_SAI1_TXC_SAI1_TX_BCLK	0xd6
 				MX8MM_IOMUXC_SAI1_TXD0_SAI1_TX_DATA0	0xd6
 				MX8MM_IOMUXC_SAI1_TXD1_SAI1_TX_DATA1	0xd6
@@ -497,7 +528,7 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 		compatible = "micron,mt25qu256aba";
-		spi-max-frequency = <29000000>;
+		spi-max-frequency = <80000000>;
 		spi-nor,ddr-quad-read-dummy = <6>;
 	};
 };
@@ -510,7 +541,7 @@
 
 	pmic: bd71837@4b {
 		reg = <0x4b>;
-		compatible = "rohm,bd71837";
+		compatible = "rohm,bd71840", "rohm,bd71837";
 		/* PMIC BD71837 PMIC_nINT GPIO1_IO3 */
 		pinctrl-0 = <&pinctrl_pmic>;
 		gpio_intr = <&gpio1 3 GPIO_ACTIVE_LOW>;
@@ -808,19 +839,10 @@
 	status = "okay";
 };
 
-&rpmsg{
-	/*
-	 * 64K for one rpmsg instance:
-	 * --0xb8000000~0xb800ffff: pingpong
-	 */
-	vdev-nums = <1>;
-	reg = <0x0 0xb8000000 0x0 0x10000>;
-	status = "okay";
-};
-
 &sai1 {
-	pinctrl-names = "default";
+	pinctrl-names = "default", "dsd";
 	pinctrl-0 = <&pinctrl_sai1>;
+	pinctrl-1 = <&pinctrl_sai1_dsd>;
 	assigned-clocks = <&clk IMX8MM_CLK_SAI1_SRC>,
 			<&clk IMX8MM_CLK_SAI1_DIV>;
 	assigned-clock-parents = <&clk IMX8MM_AUDIO_PLL1_OUT>;
@@ -830,6 +852,9 @@
 		<&clk IMX8MM_CLK_DUMMY>, <&clk IMX8MM_AUDIO_PLL1_OUT>,
 		<&clk IMX8MM_AUDIO_PLL2_OUT>;
 	clock-names = "bus", "mclk0", "mclk1", "mclk2", "mclk3", "pll8k", "pll11k";
+	fsl,sai-multi-lane;
+	fsl,dataline,dsd = <0 0xff 0xff 2 0xff 0x11>;
+	dmas = <&sdma2 0 26 0>, <&sdma2 1 26 0>;
 	status = "okay";
 };
 
@@ -904,7 +929,7 @@
 	pinctrl-0 = <&pinctrl_pcie0>;
 	disable-gpio = <&gpio1 5 GPIO_ACTIVE_LOW>;
 	reset-gpio = <&gpio4 21 GPIO_ACTIVE_LOW>;
-	ext_osc = <0>;
+	ext_osc = <1>;
 	status = "okay";
 };
 
@@ -936,12 +961,16 @@
 &usbotg1 {
 	dr_mode = "otg";
 	extcon = <0>, <&typec1_ptn5110>;
+	picophy,pre-emp-curr-control = <3>;
+	picophy,dc-vol-level-adjust = <7>;
 	status = "okay";
 };
 
 &usbotg2 {
 	dr_mode = "otg";
 	extcon = <0>, <&typec2_ptn5110>;
+	picophy,pre-emp-curr-control = <3>;
+	picophy,dc-vol-level-adjust = <7>;
 	status = "disabled";
 };
 

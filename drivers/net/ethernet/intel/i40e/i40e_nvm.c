@@ -134,8 +134,25 @@ i40e_i40e_acquire_nvm_exit:
  **/
 void i40e_release_nvm(struct i40e_hw *hw)
 {
-	if (!hw->nvm.blank_nvm_mode)
-		i40e_aq_release_resource(hw, I40E_NVM_RESOURCE_ID, 0, NULL);
+	i40e_status ret_code = I40E_SUCCESS;
+	u32 total_delay = 0;
+
+	if (hw->nvm.blank_nvm_mode)
+		return;
+
+	ret_code = i40e_aq_release_resource(hw, I40E_NVM_RESOURCE_ID, 0, NULL);
+
+	/* there are some rare cases when trying to release the resource
+	 * results in an admin Q timeout, so handle them correctly
+	 */
+	while ((ret_code == I40E_ERR_ADMIN_QUEUE_TIMEOUT) &&
+	       (total_delay < hw->aq.asq_cmd_timeout)) {
+		usleep_range(1000, 2000);
+		ret_code = i40e_aq_release_resource(hw,
+						    I40E_NVM_RESOURCE_ID,
+						    0, NULL);
+		total_delay++;
+	}
 }
 
 /**
@@ -230,6 +247,7 @@ static i40e_status i40e_read_nvm_aq(struct i40e_hw *hw, u8 module_pointer,
 	struct i40e_asq_cmd_details cmd_details;
 
 	memset(&cmd_details, 0, sizeof(cmd_details));
+	cmd_details.wb_desc = &hw->nvm_wb_desc;
 
 	/* Here we are checking the SR limit only for the flat memory model.
 	 * We cannot do it for the module-based model, as we did not acquire
@@ -280,7 +298,7 @@ static i40e_status i40e_read_nvm_word_aq(struct i40e_hw *hw, u16 offset,
 }
 
 /**
- * __i40e_read_nvm_word - Reads nvm word, assumes called does the locking
+ * __i40e_read_nvm_word - Reads nvm word, assumes caller does the locking
  * @hw: pointer to the HW structure
  * @offset: offset of the Shadow RAM word to read (0x000000 - 0x001FFF)
  * @data: word read from the Shadow RAM
@@ -742,9 +760,29 @@ i40e_status i40e_nvmupd_command(struct i40e_hw *hw,
 			*((u16 *)&bytes[2]) = hw->nvm_wait_opcode;
 		}
 
+		/* Clear error status on read */
+		if (hw->nvmupd_state == I40E_NVMUPD_STATE_ERROR)
+			hw->nvmupd_state = I40E_NVMUPD_STATE_INIT;
+
 		return 0;
 	}
 
+	/* Clear status even it is not read and log */
+	if (hw->nvmupd_state == I40E_NVMUPD_STATE_ERROR) {
+		i40e_debug(hw, I40E_DEBUG_NVM,
+			   "Clearing I40E_NVMUPD_STATE_ERROR state without reading\n");
+		hw->nvmupd_state = I40E_NVMUPD_STATE_INIT;
+	}
+
+	/* Acquire lock to prevent race condition where adminq_task
+	 * can execute after i40e_nvmupd_nvm_read/write but before state
+	 * variables (nvm_wait_opcode, nvm_release_on_done) are updated.
+	 *
+	 * During NVMUpdate, it is observed that lock could be held for
+	 * ~5ms for most commands. However lock is held for ~60ms for
+	 * NVMUPD_CSUM_LCB command.
+	 */
+	mutex_lock(&hw->aq.arq_mutex);
 	switch (hw->nvmupd_state) {
 	case I40E_NVMUPD_STATE_INIT:
 		status = i40e_nvmupd_state_init(hw, cmd, bytes, perrno);
@@ -765,7 +803,8 @@ i40e_status i40e_nvmupd_command(struct i40e_hw *hw,
 		 */
 		if (cmd->offset == 0xffff) {
 			i40e_nvmupd_check_wait_event(hw, hw->nvm_wait_opcode);
-			return 0;
+			status = 0;
+			goto exit;
 		}
 
 		status = I40E_ERR_NOT_READY;
@@ -780,6 +819,8 @@ i40e_status i40e_nvmupd_command(struct i40e_hw *hw,
 		*perrno = -ESRCH;
 		break;
 	}
+exit:
+	mutex_unlock(&hw->aq.arq_mutex);
 	return status;
 }
 
@@ -1095,6 +1136,11 @@ void i40e_nvmupd_check_wait_event(struct i40e_hw *hw, u16 opcode)
 			hw->nvm_release_on_done = false;
 		}
 		hw->nvm_wait_opcode = 0;
+
+		if (hw->aq.arq_last_status) {
+			hw->nvmupd_state = I40E_NVMUPD_STATE_ERROR;
+			return;
+		}
 
 		switch (hw->nvmupd_state) {
 		case I40E_NVMUPD_STATE_INIT_WAIT:

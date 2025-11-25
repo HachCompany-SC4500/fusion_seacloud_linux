@@ -55,6 +55,10 @@
 	model = "Kosagi Novena Dual/Quad";
 	compatible = "kosagi,imx6q-novena", "fsl,imx6q";
 
+	memory@10000000 {
+		reg = <0x10000000 0>;
+	};
+
 	chosen {
 		stdout-path = &uart2;
 	};
@@ -210,7 +214,6 @@
 &ecspi3 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_ecspi3_novena>;
-	fsl,spi-num-chipselects = <3>;
 	status = "okay";
 };
 
@@ -218,7 +221,7 @@
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_enet_novena>;
 	phy-mode = "rgmii";
-	phy-reset-gpios = <&gpio3 23 GPIO_ACTIVE_HIGH>;
+	phy-reset-gpios = <&gpio3 23 GPIO_ACTIVE_LOW>;
 	rxc-skew-ps = <3000>;
 	rxdv-skew-ps = <0>;
 	txc-skew-ps = <3000>;
@@ -265,8 +268,6 @@
 	touch: stmpe811@44 {
 		compatible = "st,stmpe811";
 		reg = <0x44>;
-		#address-cells = <1>;
-		#size-cells = <0>;
 		irq-gpio = <&gpio5 13 GPIO_ACTIVE_HIGH>;
 		id = <0>;
 		blocks = <0x5>;
@@ -447,7 +448,11 @@
 &pcie {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pinctrl_pcie_novena>;
-	reset-gpio = <&gpio3 29 GPIO_ACTIVE_HIGH>;
+	reset-gpio = <&gpio3 29 GPIO_ACTIVE_LOW>;
+	status = "okay";
+};
+
+&pwm1 {
 	status = "okay";
 };
 

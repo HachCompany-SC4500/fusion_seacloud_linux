@@ -72,20 +72,10 @@
 #endif
 };
 
-&reg_arm {
-	vin-supply = <&sw1a_reg>;
-	regulator-allow-bypass;
-};
-
-&reg_soc {
-	vin-supply = <&sw1a_reg>;
-	regulator-allow-bypass;
-};
-
 &usbphy1 {
-	fsl,tx-d-cal = <106>;
+	tx-d-cal = <0x5>;
 };
 
 &usbphy2 {
-	fsl,tx-d-cal = <106>;
+	tx-d-cal = <0x5>;
 };

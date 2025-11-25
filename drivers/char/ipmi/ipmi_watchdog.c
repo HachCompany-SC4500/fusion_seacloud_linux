@@ -43,7 +43,7 @@
 #include <linux/kdebug.h>
 #include <linux/rwsem.h>
 #include <linux/errno.h>
-#include <linux/uaccess.h>
+#include <asm/uaccess.h>
 #include <linux/notifier.h>
 #include <linux/nmi.h>
 #include <linux/reboot.h>
@@ -53,7 +53,6 @@
 #include <linux/ctype.h>
 #include <linux/delay.h>
 #include <linux/atomic.h>
-#include <linux/sched/signal.h>
 
 #ifdef CONFIG_X86
 /*
@@ -821,7 +820,7 @@ static ssize_t ipmi_read(struct file *file,
 			 loff_t      *ppos)
 {
 	int          rv = 0;
-	wait_queue_entry_t wait;
+	wait_queue_t wait;
 
 	if (count <= 0)
 		return 0;
@@ -986,7 +985,7 @@ static void ipmi_wdog_pretimeout_handler(void *handler_data)
 	pretimeout_since_last_heartbeat = 1;
 }
 
-static const struct ipmi_user_hndl ipmi_hndlrs = {
+static struct ipmi_user_hndl ipmi_hndlrs = {
 	.ipmi_recv_hndl           = ipmi_wdog_msg_handler,
 	.ipmi_watchdog_pretimeout = ipmi_wdog_pretimeout_handler
 };

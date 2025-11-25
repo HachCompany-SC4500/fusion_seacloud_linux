@@ -27,9 +27,9 @@
 #include <linux/pm_runtime.h>
 #include <linux/types.h>
 #include <linux/slab.h>
-#include <media/v4l2-fwnode.h>
 #include <media/v4l2-async.h>
 #include <media/v4l2-ctrls.h>
+#include <media/v4l2-of.h>
 #include <media/media-device.h>
 
 #include "mxc-media-dev.h"
@@ -45,7 +45,6 @@ static int mxc_md_create_links(struct mxc_md *mxc_md)
 	struct mxc_sensor_info *sensor;
 	struct mxc_mipi_csi2_dev *mipi_csi2;
 	struct mxc_parallel_csi_dev *pcsidev;
-	int num_sensors = mxc_md->subdev_notifier.num_subdevs;
 	int i, j, ret = 0;
 	u16  source_pad, sink_pad;
 	u32 flags;
@@ -202,7 +201,7 @@ static int mxc_md_create_links(struct mxc_md *mxc_md)
 	}
 
 	/* Connect MIPI Sensor to MIPI CSI2 */
-	for (i = 0; i < num_sensors; i++) {
+	for (i = 0; i < mxc_md->num_sensors; i++) {
 		sensor = &mxc_md->sensor[i];
 		if (sensor == NULL || sensor->sd == NULL)
 			continue;
@@ -287,8 +286,7 @@ static int subdev_notifier_bound(struct v4l2_async_notifier *notifier,
 	dev_dbg(&mxc_md->pdev->dev, "%s\n", __func__);
 	/* Find platform data for this sensor subdev */
 	for (i = 0; i < ARRAY_SIZE(mxc_md->sensor); i++) {
-		if (mxc_md->sensor[i].asd.match.fwnode.fwnode ==
-				of_fwnode_handle(sd->dev->of_node))
+		if (mxc_md->sensor[i].asd.match.of.node == sd->dev->of_node)
 			sensor = &mxc_md->sensor[i];
 	}
 
@@ -319,8 +317,6 @@ static int subdev_notifier_complete(struct v4l2_async_notifier *notifier)
 	if (ret < 0)
 		goto unlock;
 
-	mxc_md->link_status = 1;
-
 	ret = v4l2_device_register_subdev_nodes(&mxc_md->v4l2_dev);
 unlock:
 	mutex_unlock(&mxc_md->media_dev.graph_mutex);
@@ -347,7 +343,7 @@ static int register_sensor_entities(struct mxc_md *mxc_md)
 {
 	struct device_node *parent = mxc_md->pdev->dev.of_node;
 	struct device_node *node, *ep, *rem;
-	struct v4l2_fwnode_endpoint endpoint;
+	struct v4l2_of_endpoint endpoint;
 	int index = 0;
 
 	mxc_md->num_sensors = 0;
@@ -357,8 +353,8 @@ static int register_sensor_entities(struct mxc_md *mxc_md)
 		struct device_node *port;
 
 		if (!of_node_cmp(node->name, "hdmi_rx")) {
-			mxc_md->sensor[index].asd.match_type = V4L2_ASYNC_MATCH_FWNODE;
-			mxc_md->sensor[index].asd.match.fwnode.fwnode = of_fwnode_handle(node);
+			mxc_md->sensor[index].asd.match_type = V4L2_ASYNC_MATCH_OF;
+			mxc_md->sensor[index].asd.match.of.node = node;
 			mxc_md->async_subdevs[index] = &mxc_md->sensor[index].asd;
 
 			mxc_md->num_sensors++;
@@ -383,7 +379,7 @@ static int register_sensor_entities(struct mxc_md *mxc_md)
 		if (!ep)
 			return -EINVAL;
 
-		v4l2_fwnode_endpoint_parse(of_fwnode_handle(ep), &endpoint);
+		v4l2_of_parse_endpoint(ep, &endpoint);
 		if (WARN_ON(endpoint.base.port >= MXC_MAX_SENSORS)) {
 			v4l2_err(&mxc_md->v4l2_dev, "Failed to get sensor endpoint\n");
 			return -EINVAL;
@@ -403,8 +399,8 @@ static int register_sensor_entities(struct mxc_md *mxc_md)
 			continue;
 		}
 
-		mxc_md->sensor[index].asd.match_type = V4L2_ASYNC_MATCH_FWNODE;
-		mxc_md->sensor[index].asd.match.fwnode.fwnode = of_fwnode_handle(rem);
+		mxc_md->sensor[index].asd.match_type = V4L2_ASYNC_MATCH_OF;
+		mxc_md->sensor[index].asd.match.of.node = rem;
 		mxc_md->async_subdevs[index] = &mxc_md->sensor[index].asd;
 
 		mxc_md->num_sensors++;
@@ -421,7 +417,7 @@ static int register_isi_entity(struct mxc_md *mxc_md, struct mxc_isi_dev *mxc_is
 	int ret;
 
 	dev_dbg(&mxc_md->pdev->dev, "%s\n", __func__);
-	if (WARN_ON(mxc_isi->id >= MXC_ISI_MAX_DEVS))
+	if (WARN_ON(mxc_isi->id >= MXC_ISI_MAX_DEVS || mxc_md->mxc_isi[mxc_isi->id]))
 		return -EBUSY;
 
 	sd->grp_id = GRP_ID_MXC_ISI;
@@ -566,35 +562,6 @@ static int mxc_md_register_platform_entities(struct mxc_md *mxc_md,
 	return ret;
 }
 
-static void mxc_md_prepare_for_m2m(struct mxc_md *mxc_md,
-							struct device_node *parent)
-{
-	struct device *dev = &mxc_md->pdev->dev;
-	struct device_node *node;
-
-	for_each_available_child_of_node(parent, node) {
-		if (!strcmp(node->name, ISI_OF_NODE_NAME)) {
-			mxc_md->nr_isi++;
-
-			/* achive ISI channel0 driver data */
-			if (of_alias_get_id(node, "isi") == 0) {
-				struct platform_device *pdev =
-								of_find_device_by_node(node);
-
-				if (pdev && pdev->dev.driver) {
-					device_lock(&pdev->dev);
-					mxc_md->mxc_isi[0] = dev_get_drvdata(&pdev->dev);
-					mxc_md->mxc_isi[0]->skip_m2m = 0;
-					device_unlock(&pdev->dev);
-				}
-				put_device(&pdev->dev);
-			}
-		}
-	}
-
-	dev_dbg(dev, "%s: nr_isi = %d\n", __func__, mxc_md->nr_isi);
-}
-
 static void mxc_md_unregister_entities(struct mxc_md *mxc_md)
 {
 	int i;
@@ -619,130 +586,6 @@ static void mxc_md_unregister_entities(struct mxc_md *mxc_md)
 	}
 
 	v4l2_info(&mxc_md->v4l2_dev, "Unregistered all entities\n");
-}
-
-static int mxc_md_do_clean(struct mxc_md *mxc_md, struct media_pad *pad)
-{
-	struct device *dev = &mxc_md->pdev->dev;
-	struct media_pad *remote_pad;
-	struct v4l2_subdev	*subdev;
-	struct mxc_isi_dev *mxc_isi;
-
-	remote_pad = media_entity_remote_pad(pad);
-	if (remote_pad == NULL) {
-		dev_err(dev, "%s get remote pad fail\n", __func__);
-		return -ENODEV;
-	}
-
-	subdev = media_entity_to_v4l2_subdev(remote_pad->entity);
-	if (subdev == NULL) {
-		dev_err(dev, "%s media entity to v4l2 subdev fail\n", __func__);
-		return -ENODEV;
-	}
-
-	mxc_isi = v4l2_get_subdevdata(subdev);
-	if (mxc_isi == NULL) {
-		dev_err(dev, "%s Can't get subdev %s data\n", __func__, subdev->name);
-		return -ENODEV;
-	}
-
-	if (mxc_isi->id == 0)
-		mxc_isi->skip_m2m = 1;
-
-	v4l2_device_unregister_subdev(subdev);
-	media_entity_cleanup(&subdev->entity);
-
-	dev_info(dev, "clean ISI channel[%d]\n", mxc_isi->id);
-
-	return 0;
-}
-
-static int mxc_md_clean_channel(struct mxc_md *mxc_md, int index)
-{
-	struct mxc_sensor_info *sensor = &mxc_md->sensor[index];
-	struct mxc_mipi_csi2_dev *mipi_csi2;
-	struct mxc_parallel_csi_dev *pcsidev;
-	struct media_pad *local_pad;
-	struct media_entity *local_en;
-	u32 i, mipi_vc = 0;
-	int ret;
-
-	if (mxc_md->mipi_csi2[index]) {
-		mipi_csi2 = mxc_md->mipi_csi2[index];
-
-		if (mipi_csi2->vchannel == true)
-			mipi_vc = 4;
-		else
-			mipi_vc = 1;
-
-		local_en = &mipi_csi2->sd.entity;
-		if (local_en == NULL)
-			return -ENODEV;
-
-		for (i = 0; i < mipi_vc; i++) {
-			local_pad = &local_en->pads[MXC_MIPI_CSI2_VC0_PAD_SOURCE + i];
-			ret = mxc_md_do_clean(mxc_md, local_pad);
-			if (ret < 0)
-				return -ENODEV;
-		}
-	} else if (mxc_md->parallel_csi && !sensor->mipi_mode) {
-		pcsidev = mxc_md->pcsidev;
-		if (pcsidev == NULL)
-			return -ENODEV;
-
-		local_en = &pcsidev->sd.entity;
-		if (local_en == NULL)
-			return -ENODEV;
-
-		local_pad = &local_en->pads[MXC_PARALLEL_CSI_PAD_SOURCE];
-		ret = mxc_md_do_clean(mxc_md, local_pad);
-		if (ret < 0)
-			return -ENODEV;
-	}
-
-	return 0;
-}
-
-static int mxc_md_clean_unlink_channels(struct mxc_md *mxc_md)
-{
-	struct mxc_sensor_info *sensor;
-	int num_subdevs = mxc_md->subdev_notifier.num_subdevs;
-	int i, ret;
-
-	for (i = 0; i < num_subdevs; i++) {
-		sensor = &mxc_md->sensor[i];
-		if (sensor->sd != NULL)
-			continue;
-
-		ret = mxc_md_clean_channel(mxc_md, i);
-		if (ret < 0) {
-			pr_err("%s: clean channel fail(%d)\n", __func__, i);
-			return ret;
-		}
-	}
-
-	return 0;
-}
-
-static void mxc_md_unregister_all(struct mxc_md *mxc_md)
-{
-	struct mxc_isi_dev *mxc_isi;
-	int i;
-
-	for (i = 0; i < MXC_ISI_MAX_DEVS; i++) {
-		mxc_isi = mxc_md->mxc_isi[i];
-		if (!mxc_isi)
-			continue;
-
-		if (mxc_isi->id == 0)
-			mxc_isi->skip_m2m = 1;
-
-		v4l2_device_unregister_subdev(&mxc_isi->isi_cap.sd);
-		media_entity_cleanup(&mxc_isi->isi_cap.sd.entity);
-
-		dev_info(&mxc_isi->pdev->dev, "%s unregister ISI channel[%d]\n",
-					__func__, mxc_isi->id);
-	}
 }
 
 static int mxc_md_link_notify(struct media_link *link, unsigned int flags,
@@ -792,9 +635,6 @@ static int mxc_md_probe(struct platform_device *pdev)
 		goto err_md;
 	}
 
-	/* prepare for registration m2m */
-	mxc_md_prepare_for_m2m(mxc_md, dev->of_node);
-
 	ret = mxc_md_register_platform_entities(mxc_md, dev->of_node);
 	if (ret < 0)
 		goto err_v4l2_dev;
@@ -809,26 +649,12 @@ static int mxc_md_probe(struct platform_device *pdev)
 		mxc_md->subdev_notifier.bound = subdev_notifier_bound;
 		mxc_md->subdev_notifier.complete = subdev_notifier_complete;
 		mxc_md->num_sensors = 0;
-		mxc_md->link_status = 0;
 
 		ret = v4l2_async_notifier_register(&mxc_md->v4l2_dev,
 						&mxc_md->subdev_notifier);
 		if (ret < 0) {
 			dev_warn(&mxc_md->pdev->dev, "Sensor register failed\n");
 			goto err_m_ent;
-		}
-
-		if (!mxc_md->link_status) {
-			if (mxc_md->num_sensors > 0) {
-				ret = subdev_notifier_complete(&mxc_md->subdev_notifier);
-				if (ret < 0)
-					goto err_m_ent;
-
-				mxc_md_clean_unlink_channels(mxc_md);
-			} else {
-				/* no sensors connected */
-				mxc_md_unregister_all(mxc_md);
-			}
 		}
 	}
 

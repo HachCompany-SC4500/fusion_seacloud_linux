@@ -76,13 +76,8 @@ struct mxc_hdmi_rx_dev_video_standards {
 	u8 fps;
 };
 
-enum hdp_rx_irq {
-	HPD5V_IRQ_IN,
-	HPD5V_IRQ_OUT,
-	HPD5V_IRQ_NUM,
-};
-
 struct mxc_hdmi_rx_dev {
+	spinlock_t				slock;
 	struct mutex			lock;
 	wait_queue_head_t		irq_queue;
 	struct media_pad pads[MXC_HDMI_RX_PADS_NUM];
@@ -121,17 +116,12 @@ struct mxc_hdmi_rx_dev {
 	u8 hdmi_vic;
     u8 pixel_encoding;
 	u8 color_depth;
-	bool cable_plugin;
 
 	u8 is_cec;
-	bool cec_running;
 	struct imx_cec_dev cec;
 	u32 sample_rate;
 	u32 sample_width;
 	u32 channels;
-
-	int irq[HPD5V_IRQ_NUM];
-	struct delayed_work hpd5v_work;
 };
 
 enum mxc_hdmi_rx_power_state {
@@ -140,14 +130,10 @@ enum mxc_hdmi_rx_power_state {
 	MXC_HDMI_RX_RUNTIME_SUSPEND = 0x04,
 };
 
-void hdmirx_stop(state_struct *state);
-void hdmirx_hotplug_trigger(state_struct *state);
-void hdmirx_phy_pix_engine_reset(state_struct *state);
 int hdmirx_startup(state_struct *state);
-int hdmirx_init(state_struct *state);
-int hdmirx_get_hpd_state(state_struct *state, u8 *hpd);
+void imx8qm_hdmi_phy_reset(state_struct *state, u8 reset);
+int hdmi_rx_init(state_struct *state);
 int mxc_hdmi_frame_timing(struct mxc_hdmi_rx_dev *hdmi_rx);
 void mxc_hdmi_rx_register_audio_driver(struct device *dev);
-void imx8qm_hdmi_phy_reset(state_struct *state, u8 reset);
 
 #endif

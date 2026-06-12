@@ -3207,8 +3207,6 @@ static int qla4xxx_conn_bind(struct iscsi_cls_session *cls_session,
 	if (iscsi_conn_bind(cls_session, cls_conn, is_leading))
 		return -EINVAL;
 	ep = iscsi_lookup_endpoint(transport_fd);
-	if (!ep)
-		return -EINVAL;
 	conn = cls_conn->dd_data;
 	qla_conn = conn->dd_data;
 	qla_conn->qla_ep = ep->dd_data;
@@ -6324,9 +6322,13 @@ static int qla4xxx_compare_tuple_ddb(struct scsi_qla_host *ha,
 	 * ISID would not match firmware generated ISID.
 	 */
 	if (is_isid_compare) {
-		DEBUG2(ql4_printk(KERN_INFO, ha,
-			"%s: old ISID [%pmR] New ISID [%pmR]\n",
-			__func__, old_tddb->isid, new_tddb->isid));
+		DEBUG2(ql4_printk(KERN_INFO, ha, "%s: old ISID [%02x%02x%02x"
+			"%02x%02x%02x] New ISID [%02x%02x%02x%02x%02x%02x]\n",
+			__func__, old_tddb->isid[5], old_tddb->isid[4],
+			old_tddb->isid[3], old_tddb->isid[2], old_tddb->isid[1],
+			old_tddb->isid[0], new_tddb->isid[5], new_tddb->isid[4],
+			new_tddb->isid[3], new_tddb->isid[2], new_tddb->isid[1],
+			new_tddb->isid[0]));
 
 		if (memcmp(&old_tddb->isid[0], &new_tddb->isid[0],
 			   sizeof(old_tddb->isid)))
@@ -7243,8 +7245,6 @@ static int qla4xxx_sysfs_ddb_tgt_create(struct scsi_qla_host *ha,
 
 	rc = qla4xxx_copy_from_fwddb_param(fnode_sess, fnode_conn,
 					   fw_ddb_entry);
-	if (rc)
-		goto free_sess;
 
 	ql4_printk(KERN_INFO, ha, "%s: sysfs entry %s created\n",
 		   __func__, fnode_sess->dev.kobj.name);
@@ -7943,7 +7943,10 @@ qla4xxx_sysfs_ddb_get_param(struct iscsi_bus_flash_session *fnode_sess,
 		rc = sprintf(buf, "%u\n", fnode_conn->keepalive_timeout);
 		break;
 	case ISCSI_FLASHNODE_ISID:
-		rc = sprintf(buf, "%pm\n", fnode_sess->isid);
+		rc = sprintf(buf, "%02x%02x%02x%02x%02x%02x\n",
+			     fnode_sess->isid[0], fnode_sess->isid[1],
+			     fnode_sess->isid[2], fnode_sess->isid[3],
+			     fnode_sess->isid[4], fnode_sess->isid[5]);
 		break;
 	case ISCSI_FLASHNODE_TSID:
 		rc = sprintf(buf, "%u\n", fnode_sess->tsid);
@@ -8686,6 +8689,7 @@ static int qla4xxx_probe_adapter(struct pci_dev *pdev,
 	init_completion(&ha->disable_acb_comp);
 	init_completion(&ha->idc_comp);
 	init_completion(&ha->link_up_comp);
+	init_completion(&ha->disable_acb_comp);
 
 	spin_lock_init(&ha->hardware_lock);
 	spin_lock_init(&ha->work_lock);
@@ -9588,15 +9592,15 @@ exit_host_reset:
  * driver calls the following device driver's callbacks
  *
  * - Fatal Errors - link_reset
- * - Non-Fatal Errors - driver's error_detected() which
+ * - Non-Fatal Errors - driver's pci_error_detected() which
  * returns CAN_RECOVER, NEED_RESET or DISCONNECT.
  *
  * PCI AER driver calls
- * CAN_RECOVER - driver's mmio_enabled(), mmio_enabled()
+ * CAN_RECOVER - driver's pci_mmio_enabled(), mmio_enabled
  *               returns RECOVERED or NEED_RESET if fw_hung
  * NEED_RESET - driver's slot_reset()
  * DISCONNECT - device is dead & cannot recover
- * RECOVERED - driver's resume()
+ * RECOVERED - driver's pci_resume()
  */
 static pci_ers_result_t
 qla4xxx_pci_error_detected(struct pci_dev *pdev, pci_channel_state_t state)

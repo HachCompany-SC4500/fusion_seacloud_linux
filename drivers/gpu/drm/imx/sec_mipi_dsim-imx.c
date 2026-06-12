@@ -1,7 +1,7 @@
 /*
  * Samsung MIPI DSI Host Controller on IMX
  *
- * Copyright 2018-2019 NXP
+ * Copyright 2018 NXP
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -32,7 +32,6 @@
 
 #include "imx-drm.h"
 #include "sec_mipi_dphy_ln14lpp.h"
-#include "sec_mipi_pll_1432x.h"
 
 #define DRIVER_NAME "imx_sec_dsim_drv"
 
@@ -103,12 +102,12 @@ static void imx_sec_dsim_lanes_reset(struct regmap *gpr, bool reset)
 	if (!reset)
 		/* release lanes reset */
 		regmap_update_bits(gpr, GPR_MIPI_RESET_DIV,
-				   GPR_MIPI_M_RESETN,
-				   GPR_MIPI_M_RESETN);
+				   GPR_MIPI_S_RESETN | GPR_MIPI_M_RESETN,
+				   GPR_MIPI_S_RESETN | GPR_MIPI_M_RESETN);
 	else
 		/* reset lanes */
 		regmap_update_bits(gpr, GPR_MIPI_RESET_DIV,
-				   GPR_MIPI_M_RESETN,
+				   GPR_MIPI_S_RESETN | GPR_MIPI_M_RESETN,
 				   0x0);
 }
 
@@ -198,7 +197,6 @@ static const struct sec_mipi_dsim_plat_data imx8mm_mipi_dsim_plat_data = {
 	.version	= 0x1060200,
 	.max_data_lanes = 4,
 	.max_data_rate  = 1500000000ULL,
-	.dphy_pll	= &pll_1432x,
 	.dphy_timing	= dphy_timing_ln14lpp_v1p2,
 	.num_dphy_timing = ARRAY_SIZE(dphy_timing_ln14lpp_v1p2),
 	.dphy_timing_cmp = dphy_timing_default_cmp,

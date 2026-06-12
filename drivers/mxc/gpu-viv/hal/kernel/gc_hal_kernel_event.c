@@ -2038,6 +2038,62 @@ gckEVENT_Interrupt(
     IN gctUINT32 Data
     )
 {
+    gcmkHEADER_ARG("Event=0x%x Data=0x%x", Event, Data);
+
+    /* Verify the arguments. */
+    gcmkVERIFY_OBJECT(Event, gcvOBJ_EVENT);
+
+    if (Data & 0x20000000)
+    {
+        gctUINT32 resume;
+        gctUINT32 bytes;
+        gctUINT32 idle;
+        gctUINT32 pageSize = Event->kernel->command->pageSize;
+        Data &= ~0x20000000;
+
+        {
+            /* Make sure FE is idle. */
+            do
+            {
+                gcmkVERIFY_OK(gckOS_ReadRegisterEx(
+                    Event->os,
+                    Event->kernel->core,
+                    0x4,
+                    &idle));
+            }
+            while (idle != 0x7FFFFFFF);
+
+            gcmkVERIFY_OK(gckOS_ReadRegisterEx(
+                    Event->os,
+                    Event->kernel->core,
+                    0x664,
+                    &resume));
+
+            gcmkVERIFY_OK(gckOS_ReadRegisterEx(
+                    Event->os,
+                    Event->kernel->core,
+                    0x664,
+                    &resume));
+
+            gcmkVERIFY_OK(gckHARDWARE_WaitLink(
+                    Event->kernel->hardware,
+                    gcvNULL,
+                    ~0U,
+                    resume & (pageSize - 1),
+                    &bytes,
+                    gcvNULL,
+                    gcvNULL
+                    ));
+
+            /* Start Command Parser. */
+            gcmkVERIFY_OK(gckHARDWARE_Execute(
+                Event->kernel->hardware,
+                resume,
+                bytes
+                ));
+        }
+    }
+
     /* Combine current interrupt status with pending flags. */
     gckOS_AtomSetMask(Event->pending, Data);
 
@@ -2050,17 +2106,16 @@ gckEVENT_Interrupt(
         {
             if ((Data & (1 << j)))
             {
-                gckOS_AtomDecrement(
-                    Event->os,
-                    Event->interruptCount,
-                    &oldValue
-                    );
+                gcmkVERIFY_OK(gckOS_AtomDecrement(Event->os,
+                                                  Event->interruptCount,
+                                                  &oldValue));
             }
         }
     }
 #endif
 
     /* Success. */
+    gcmkFOOTER_NO();
     return gcvSTATUS_OK;
 }
 
@@ -2767,9 +2822,6 @@ OnError:
 **      gctPHYS_ADDR Handle
 **          Physical address handle.  If gcvNULL it is video memory.
 **
-**      gctSIZE_T Offset,
-**          Offset to this memory block.
-**
 **      gctPOINTER Logical
 **          Logical address to flush.
 **
@@ -2784,8 +2836,7 @@ gceSTATUS
 gckEVENT_Stop(
     IN gckEVENT Event,
     IN gctUINT32 ProcessID,
-    IN gctPHYS_ADDR Handle,
-    IN gctSIZE_T Offset,
+    IN gctUINT32 Handle,
     IN gctPOINTER Logical,
     IN gctUINT32 Address,
     IN gctSIGNAL Signal,
@@ -2844,15 +2895,17 @@ gckEVENT_Stop(
     }
 #endif
 
+#if gcdNONPAGED_MEMORY_CACHEABLE
     /* Flush the cache for the END. */
     gcmkONERROR(gckOS_CacheClean(
         Event->os,
-        0,
-        Handle,
-        Offset,
+        ProcessID,
+        gcvNULL,
+        (gctUINT32)Handle,
         Logical,
         *waitSize
         ));
+#endif
 
     /* Wait for the signal. */
     gcmkONERROR(gckOS_WaitSignal(Event->os, Signal, gcvFALSE, gcvINFINITE));

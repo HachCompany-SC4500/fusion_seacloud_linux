@@ -218,12 +218,12 @@ struct dpu_fetchunit *dpu_fw_get(struct dpu_soc *dpu, int id)
 	mutex_lock(&fu->mutex);
 
 	if (fu->inuse) {
-		fu = ERR_PTR(-EBUSY);
-		goto out;
+		mutex_unlock(&fu->mutex);
+		return ERR_PTR(-EBUSY);
 	}
 
 	fu->inuse = true;
-out:
+
 	mutex_unlock(&fu->mutex);
 
 	return fu;
@@ -298,6 +298,9 @@ int dpu_fw_init(struct dpu_soc *dpu, unsigned int id,
 	for (i = 0; i < ARRAY_SIZE(fw_ids); i++)
 		if (fw_ids[i] == id)
 			break;
+
+	if (i == ARRAY_SIZE(fw_ids))
+		return -EINVAL;
 
 	fu = &fw->fu;
 	dpu->fw_priv[i] = fu;
